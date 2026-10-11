@@ -1,0 +1,17 @@
+services:
+  db:
+    image: paradedb/paradedb:0.26.1
+    container_name: kith-db
+    env_file: .env
+    ports:
+      - "5433:5432"                   # 5433 on local machine; 5432 is local Postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  pgdata:
