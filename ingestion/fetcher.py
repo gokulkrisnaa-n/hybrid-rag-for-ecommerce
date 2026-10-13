@@ -10,7 +10,13 @@ Response handling:
   - 200 with products     -> keep paging
   - 200 with no products  -> end of catalog, stop normally
   - 429 / 5xx / network   -> retry with backoff (honours Retry-After)
+  - 400 after a full page -> Shopify's pagination cap; stop, run is partial
   - other 4xx (403, 404)  -> stop and raise FetchError
+
+Shopify stops serving /products.json pages after 25,000 products (100 pages
+of 250); asking for page 101 returns HTTP 400. The fetcher stops at the cap
+without requesting that page, and also treats a 400 straight after a full
+page as the cap, in case the limit isn't exactly 25,000.
 
 A failed fetch raises instead of returning a partial list, because the
 upsert treats missing products as removed. A partial catalog that looked
@@ -40,9 +46,20 @@ MAX_BACKOFF = 60.0
 REQUEST_TIMEOUT = 30.0
 HEADERS = {"User-Agent": "kith-rag-portfolio-project (educational; contact via GitHub)"}
 
+# Shopify stops paginating storefront product lists after 25,000 items
+# (page 101 of 250 returns HTTP 400). A crawl that reaches the cap is recorded
+# as partial, never complete, so soft-deletes are never computed from a
+# truncated catalog.
+SHOPIFY_PAGINATION_CAP = 25_000
+PAGE_SIZE = 250
+
 
 class FetchError(Exception):
     """The catalog could not be fetched completely."""
+
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.status_code = status_code     # HTTP status, when the failure was an HTTP response
 
 
 def _retry_after_seconds(response: httpx.Response) -> float | None:
@@ -79,7 +96,10 @@ async def _get_products_page(client: httpx.AsyncClient, url: str) -> list[dict]:
                 return response.json().get("products", [])
 
             if response.status_code not in RETRYABLE_STATUS:
-                raise FetchError(f"{url} -> HTTP {response.status_code} (not retryable)")
+                raise FetchError(
+                    f"{url} -> HTTP {response.status_code} (not retryable)",
+                    status_code=response.status_code,
+                )
 
             reason = f"HTTP {response.status_code}"
             wait = _retry_after_seconds(response) or _backoff(attempt)
@@ -118,35 +138,73 @@ async def iter_catalog_pages(
     *,
     delay_range: tuple[float, float] = (1.0, 5.0),
     transport: httpx.AsyncBaseTransport | None = None,
+    state: dict | None = None,
 ) -> AsyncIterator[tuple[int, list[RawProductRecord]]]:
     """
     Yield (page_number, records) one page at a time.
 
-    When the catalog ends, the last item yielded is (page_number, []): an
-    explicit end-of-catalog marker. If iteration stops without it, the
-    fetch stopped at max_pages and the catalog may be incomplete.
-    Raises FetchError if a page can't be fetched.
+    When the catalog genuinely ends, the last item yielded is (page_number, []):
+    an explicit end-of-catalog marker. If iteration stops without it, the crawl
+    was cut short and the catalog may be incomplete.
+
+    If `state` is given, state["stop_reason"] is set to one of:
+      "end"       : reached an empty page below the Shopify cap
+      "cap"       : hit Shopify's pagination cap (reached SHOPIFY_PAGINATION_CAP
+                    products, or got HTTP 400 right after a full page); more may exist
+      "max_pages" : stopped at max_pages
+    state["products"] is the number of products returned.
+    Raises FetchError if a page can't be fetched for any other reason.
     """
+    state = state if state is not None else {}
+    products_returned = 0
+    last_page_full = False
+
     async with httpx.AsyncClient(
         headers=HEADERS, timeout=REQUEST_TIMEOUT, transport=transport
     ) as client:
         for page in range(1, max_pages + 1):
-            hit_url = f"{base_url}/products.json?limit=250&page={page}"
+            hit_url = f"{base_url}/products.json?limit={PAGE_SIZE}&page={page}"
             log.info("Fetching: %s", hit_url)
 
-            products = await _get_products_page(client, hit_url)
+            try:
+                products = await _get_products_page(client, hit_url)
+            except FetchError as e:
+                # A 400 right after a full page is Shopify refusing to paginate further,
+                # not a broken request. A 400 on page 1 or after a short page is a real error.
+                if e.status_code == 400 and last_page_full:
+                    state.update(stop_reason="cap", products=products_returned)
+                    log.warning(
+                        "Page %d returned HTTP 400 after a full page: Shopify's pagination cap "
+                        "(%d products fetched). The catalog may be larger; marking this run partial.",
+                        page, products_returned,
+                    )
+                    return
+                raise
 
-            # An empty page means we have reached the end of the catalog.
+            # An empty page means the end of the catalog.
             if not products:
+                state.update(stop_reason="end", products=products_returned)
                 log.info("Page %d is empty: end of catalog.", page)
                 yield page, []
                 return
 
+            products_returned += len(products)
+            last_page_full = len(products) >= PAGE_SIZE
             yield page, _to_records(base_url, products)
+
+            # The next page would be refused (HTTP 400), so don't ask for it.
+            if products_returned >= SHOPIFY_PAGINATION_CAP and last_page_full:
+                state.update(stop_reason="cap", products=products_returned)
+                log.warning(
+                    "Reached Shopify's %d-product pagination cap; the catalog may be larger. "
+                    "Marking this run partial.", SHOPIFY_PAGINATION_CAP,
+                )
+                return
 
             # Random delay before next hit, so we do not self-DDoS the server
             await asyncio.sleep(random.uniform(*delay_range))
 
+    state.update(stop_reason="max_pages", products=products_returned)
     log.warning("Stopped at max_pages=%d; the catalog may have more pages.", max_pages)
 
 
@@ -165,7 +223,8 @@ async def run_fetch(conn, base_url: str, max_pages: int = 200, **kwargs) -> dict
 
     Run status:
       complete : reached the empty page; the parser may soft-delete products missing from it
-      partial  : stopped at max_pages; never used for soft-deletes
+      partial  : stopped at max_pages or at Shopify's 25,000-product cap;
+                 never used for soft-deletes
       failed   : FetchError (or any crash); never used for soft-deletes
 
     Each page is committed as it arrives, so a failure keeps the pages already stored.
@@ -173,10 +232,11 @@ async def run_fetch(conn, base_url: str, max_pages: int = 200, **kwargs) -> dict
     run_id = db.start_fetch_run(conn, base_url)
     totals = db.UpsertCounts()
     reached_end = False
+    state: dict = {}
 
     try:
         # aclosing() shuts the HTTP client down promptly when we break out early.
-        async with aclosing(iter_catalog_pages(base_url, max_pages, **kwargs)) as pages:
+        async with aclosing(iter_catalog_pages(base_url, max_pages, state=state, **kwargs)) as pages:
             async for page, records in pages:
                 if not records:
                     reached_end = True
@@ -195,13 +255,17 @@ async def run_fetch(conn, base_url: str, max_pages: int = 200, **kwargs) -> dict
         raise
 
     status = "complete" if reached_end else "partial"
-    db.finish_fetch_run(conn, run_id, status)
+    note = {
+        "cap": f"stopped at Shopify's pagination cap after {state.get('products', 0)} products",
+        "max_pages": f"stopped at max_pages={max_pages}",
+    }.get(state.get("stop_reason"))
+    db.finish_fetch_run(conn, run_id, status, error=note)
     log.info(
         "Fetch run %d %s: %d products (%d new, %d changed, %d unchanged).",
         run_id, status, totals.seen, totals.new, totals.changed, totals.unchanged,
     )
-    return {"run_id": run_id, "status": status, "new": totals.new,
-            "changed": totals.changed, "unchanged": totals.unchanged}
+    return {"run_id": run_id, "status": status, "stop_reason": state.get("stop_reason"),
+            "new": totals.new, "changed": totals.changed, "unchanged": totals.unchanged}
 
 
 if __name__ == "__main__":
@@ -218,4 +282,3 @@ if __name__ == "__main__":
 
     with db.connect() as conn:
         asyncio.run(run_fetch(conn, args.base_url, args.max_pages))
-
