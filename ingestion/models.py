@@ -226,6 +226,8 @@ class CleanProduct(BaseModel):
 
         if self.materials:
             lines.append(f"Material: {', '.join(self.materials)}.")
+        if self.style_code:
+            lines.append(f"Style code: {self.style_code}.")
 
         extra_tags = [
             t for t in self.clean_tags
