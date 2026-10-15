@@ -80,6 +80,11 @@ _QUERY_CACHE_SIZE = 1024
 _query_cache: OrderedDict[tuple[str, int, str], list[float]] = OrderedDict()
 
 
+def clear_query_cache() -> None:
+    """Forget cached query vectors (evals use this so every mode pays for its own embedding)."""
+    _query_cache.clear()
+
+
 async def embed_query(text: str) -> list[float]:
     """Embed one search query, with the same model and dimensions as the products."""
     s = get_settings()

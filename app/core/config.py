@@ -43,6 +43,15 @@ class Settings(BaseSettings):
     # --- Retrieval ----------------------------------------------------------
     retrieval_candidates: int = 50     # results taken from EACH method before fusion
     rrf_k: int = 60                    # RRF constant; 60 is the value from the original paper
+    rrf_weight_bm25: float = 1.0       # how much each method's list counts in the fusion
+    rrf_weight_dense: float = 1.0
+
+    # Rule-based query handling (see app/retrieval/query_analysis.py). Each
+    # can be switched off with an environment variable, so the eval can
+    # measure what each one is worth, e.g. ROUTE_CODES_TO_BM25=false.
+    route_codes_to_bm25: bool = True       # style codes / SKUs: BM25 answers alone
+    bm25_fuzzy_fallback: bool = True       # words with no exact match are retried with typos allowed
+    bm25_coverage_weighting: bool = True   # BM25 counts less when it matches only part of the query
 
     # HNSW scans only `ef_search` candidates and filters AFTER the scan, so a
     # query can never return more than ef_search rows (pgvector's default is 40).

@@ -10,6 +10,12 @@ embedded. Each runs on its own pooled connection.
 
 `mode` runs one method alone, which is what the evals compare against.
 
+Rules applied in hybrid mode (each can be switched off in settings):
+  - a query that looks like a style code goes to BM25 alone;
+  - query words with no exact match in the catalog are retried with fuzzy
+    matching, and BM25's weight in the fusion drops with the share of the
+    query it could match (see sparse.plan_sparse).
+
 Try it from the project root:
     python -m app.retrieval.hybrid "samba espadrille"
     python -m app.retrieval.hybrid "warm jacket for winter" --max-price 300 --gender womens unisex
@@ -29,7 +35,8 @@ from app.core import llm
 from app.core.config import get_settings
 from app.retrieval.dense import search_dense
 from app.retrieval.fusion import reciprocal_rank_fusion
-from app.retrieval.sparse import Hit, search_sparse
+from app.retrieval.query_analysis import is_code_query
+from app.retrieval.sparse import Hit, SparsePlan, plan_sparse, search_sparse
 from app.schemas.product_models import (
     PRODUCT_CARD_COLUMNS,
     ProductCard,
@@ -70,10 +77,17 @@ async def hybrid_search(
     s = get_settings()
     k = max(s.retrieval_candidates, query.limit)
     timings: dict[str, float] = {}
+    debug: dict = {}
+    code_query = s.route_codes_to_bm25 and is_code_query(query.text)
 
-    async def run_sparse() -> list[Hit]:
+    async def run_sparse() -> tuple[list[Hit], SparsePlan | None]:
         async with pool.connection() as conn:
-            return await search_sparse(conn, query.text, query.filters, k)
+            # A style code is split into pieces by the tokenizer ("ai1203a899-105"
+            # -> "ai1203a899", "105"), so per-word checks would only mislead.
+            plan = None if code_query else await plan_sparse(conn, query.text, query.filters, fuzzy=s.bm25_fuzzy_fallback)
+            hits = await search_sparse(conn, query.text, query.filters, k,
+                                       fuzzy_terms=plan.fuzzy if plan else None)
+        return hits, plan
 
     async def run_dense() -> list[Hit]:
         vec = await _timed(timings, "embed_query", lambda: llm.embed_query(query.text))
@@ -83,31 +97,52 @@ async def hybrid_search(
     started = time.perf_counter()
     sparse_hits: list[Hit] = []
     dense_hits: list[Hit] = []
-    if mode == "hybrid":
-        sparse_hits, dense_hits = await asyncio.gather(
-            _timed(timings, "bm25_search", run_sparse), run_dense()
-        )
-    elif mode == "bm25":
-        sparse_hits = await _timed(timings, "bm25_search", run_sparse)
+    plan: SparsePlan | None = None
+    route = mode
+
+    if mode == "bm25":
+        sparse_hits, plan = await _timed(timings, "bm25_search", run_sparse)
     elif mode == "dense":
         dense_hits = await run_dense()
-    else:
+    elif mode != "hybrid":
         raise ValueError(f"unknown mode {mode!r}")
+    elif code_query:
+        # Embeddings can't tell one style code from another; BM25 answers alone,
+        # and vector search is only the fallback when the code isn't in the catalog.
+        sparse_hits, plan = await _timed(timings, "bm25_search", run_sparse)
+        route = "code:bm25"
+        if not sparse_hits:
+            dense_hits = await run_dense()
+            route = "code:dense-fallback"
+    else:
+        (sparse_hits, plan), dense_hits = await asyncio.gather(
+            _timed(timings, "bm25_search", run_sparse), run_dense()
+        )
 
     bm25_rank = {h.product_id: h.rank for h in sparse_hits}
     dense_rank = {h.product_id: h.rank for h in dense_hits}
 
     # Rank the candidates
-    if mode == "hybrid":
+    if route == "hybrid":
+        w_bm25 = s.rrf_weight_bm25
+        if s.bm25_coverage_weighting and plan is not None:
+            w_bm25 *= plan.coverage
+        weights = {"bm25": w_bm25, "dense": s.rrf_weight_dense}
+        debug["weights"] = {m: round(w, 3) for m, w in weights.items()}
         fused = reciprocal_rank_fusion(
             {"bm25": [h.product_id for h in sparse_hits], "dense": [h.product_id for h in dense_hits]},
             k=s.rrf_k,
+            weights=weights,
             limit=query.limit,
         )
         ranked = [(f.product_id, f.score) for f in fused]
     else:
-        hits = sparse_hits if mode == "bm25" else dense_hits
+        hits = sparse_hits if sparse_hits or mode == "bm25" else dense_hits
         ranked = [(h.product_id, h.score) for h in hits[: query.limit]]
+
+    debug["route"] = route
+    if plan is not None:
+        debug["bm25_terms"] = plan.as_debug()
 
     cards = await _timed(timings, "fetch_cards", lambda: _fetch_cards(pool, [pid for pid, _ in ranked]))
     timings["total"] = round((time.perf_counter() - started) * 1000, 1)
@@ -122,7 +157,7 @@ async def hybrid_search(
         for pid, score in ranked
         if pid in cards          # a product deleted between search and fetch is simply dropped
     ]
-    return SearchResult(mode=mode, results=results, timings_ms=timings)
+    return SearchResult(mode=mode, results=results, timings_ms=timings, debug=debug)
 
 
 # ===========================================================================
@@ -132,6 +167,8 @@ async def hybrid_search(
 def _print_result(res: SearchResult) -> None:
     print(f"\n=== {res.mode.upper()}  ({res.timings_ms.get('total', 0):.0f} ms: "
           + ", ".join(f"{k} {v:.0f}" for k, v in res.timings_ms.items() if k != "total") + ")")
+    if res.debug:
+        print(f"    {res.debug}")
     if not res.results:
         print("  (no results)")
         return

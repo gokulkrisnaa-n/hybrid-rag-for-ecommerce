@@ -198,7 +198,9 @@ CREATE TABLE IF NOT EXISTS clean.parse_failures (
 -- =============================================================================
 
 -- 4a. ParadeDB full-text (BM25) index. Only one ParadeDB index is allowed per table.
---   search_text, title : English stemming, so "sneaker" matches "sneakers"
+--   search_text, title : English stemming ("sneaker" matches "sneakers") and
+--                        English stopwords ("for", "the" are not indexed, so
+--                        "Kith for Wilson" doesn't match every query with "for")
 --   brand, model, ...  : default unicode tokenizer (lowercased words)
 --   category, gender,
 --   clean_tags         : literal (exact values), for filters inside the search
@@ -206,8 +208,8 @@ CREATE TABLE IF NOT EXISTS clean.parse_failures (
 CREATE INDEX IF NOT EXISTS products_search_idx ON clean.products
 USING paradedb (
     product_id,
-    (search_text::pdb.simple('stemmer=english')),
-    (title::pdb.simple('stemmer=english')),
+    (search_text::pdb.simple('stemmer=english', 'stopwords_language=english')),
+    (title::pdb.simple('stemmer=english', 'stopwords_language=english')),
     brand,
     collaborator,
     model,
