@@ -11,6 +11,7 @@ steps are built.
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -72,6 +73,22 @@ async def embed_texts(texts: list[str]) -> EmbeddingResult:
     return EmbeddingResult(vectors=vectors, tokens=tokens, model=s.embedding_model)
 
 
+# Shoppers (and eval runs) repeat queries; an identical query always gives the
+# same vector, so recent ones are kept in memory. Keyed by model and dimensions
+# too, so a config change never returns a stale vector.
+_QUERY_CACHE_SIZE = 1024
+_query_cache: OrderedDict[tuple[str, int, str], list[float]] = OrderedDict()
+
+
 async def embed_query(text: str) -> list[float]:
     """Embed one search query, with the same model and dimensions as the products."""
-    return (await embed_texts([text])).vectors[0]
+    s = get_settings()
+    key = (s.embedding_model, s.embedding_dimensions, text)
+    if key in _query_cache:
+        _query_cache.move_to_end(key)
+        return _query_cache[key]
+    vec = (await embed_texts([text])).vectors[0]
+    _query_cache[key] = vec
+    if len(_query_cache) > _QUERY_CACHE_SIZE:
+        _query_cache.popitem(last=False)
+    return vec
