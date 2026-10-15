@@ -1,0 +1,55 @@
+{"id": "samba-espadrille", "query": "samba espadrille", "tags": ["exact-name"], "notes": "2: adidas x CLOT Samba Espadrille (any colorway). 1: other adult Samba models. Espadrilles from other brands are not relevant."}
+{"id": "adidas-samba-og", "query": "adidas samba og", "tags": ["exact-name"], "notes": "2: adult Samba OG, any colorway. 1: kids Samba OG (TD/PS/GS), Samba Jane, other Samba models."}
+{"id": "gel-kayano-12-1", "query": "gel kayano 12.1", "tags": ["exact-name"], "notes": "2: GEL-KAYANO 12.1, any colorway (incl. Kith for ASICS). 1: other GEL-KAYANO versions and other ASICS GEL runners."}
+{"id": "chuck-70", "query": "chuck 70", "tags": ["exact-name"], "notes": "2: Converse Chuck 70, any colorway or height. 1: other Converse Chuck Taylor models."}
+{"id": "williams-hoodie", "query": "kith williams hoodie", "tags": ["exact-name"], "notes": "2: Kith Williams hoodies (any version or colorway). 1: other Kith hoodies."}
+{"id": "nuptse", "query": "nuptse", "tags": ["exact-name"], "notes": "2: The North Face Nuptse products (jackets, vests, scarves, booties). 1: other The North Face down outerwear."}
+{"id": "adidas-superstar", "query": "adidas superstar", "tags": ["exact-name"], "notes": "2: adidas Superstar, any colorway incl. collabs. 1: other adidas shell-toe / court sneakers."}
+{"id": "court-jacket", "query": "court jacket", "tags": ["exact-name"], "notes": "2: products named Court Jacket (e.g. Kith Ivy for Wilson). 1: other tennis or track jackets."}
+{"id": "new-balance-990", "query": "new balance 990", "tags": ["model-family"], "notes": "2: any 990 version (990v1-v6). 1: other New Balance 99x models. If none are in stock, skip this query."}
+{"id": "new-balance-sneakers", "query": "new balance sneakers", "tags": ["brand"], "notes": "2: any New Balance sneaker incl. collabs. Nothing from other brands."}
+{"id": "the-north-face", "query": "the north face", "tags": ["brand"], "notes": "2: any The North Face product incl. collabs."}
+{"id": "ray-ban-sunglasses", "query": "ray-ban sunglasses", "tags": ["brand"], "notes": "2: Ray-Ban sunglasses incl. collabs. 1: other sunglasses."}
+{"id": "saint-laurent-shoes", "query": "saint laurent shoes", "tags": ["brand"], "notes": "2: Saint Laurent footwear. Saint Laurent non-footwear is not relevant.", "filters": {"in_stock_only": false}}
+{"id": "clot", "query": "clot", "filters": {"in_stock_only": false}, "tags": ["collab"], "notes": "2: every CLOT collaboration product. Sold-out included, so the full collab range counts."}
+{"id": "kith-x-asics", "query": "kith x asics", "tags": ["collab"], "notes": "2: Kith for ASICS / Kith x ASICS products. 1: non-collab ASICS sneakers."}
+{"id": "skims-north-face", "query": "skims north face", "tags": ["collab"], "notes": "2: The North Face x SKIMS products. 1: none; plain TNF or plain SKIMS is not this collab."}
+{"id": "asap-rocky-ray-ban", "query": "asap rocky ray ban", "tags": ["collab"], "notes": "2: Ray-Ban x A$AP Rocky products. 1: other Ray-Ban sunglasses."}
+{"id": "kith-new-york-rangers", "query": "kith new york rangers", "tags": ["collab"], "notes": "2: Kith for the New York Rangers products. 1: other Kith NHL / sports-team products."}
+{"id": "kith-wilson-tennis", "query": "kith wilson tennis", "tags": ["collab"], "notes": "2: Kith Ivy for Wilson / Kith x Wilson products. 1: other Kith tennis-inspired items."}
+{"id": "style-code-aaki4323", "query": "aaki4323", "filters": {"in_stock_only": false}, "tags": ["style-code"], "notes": "2: the product with style code aaki4323 (CLOT Samba Espadrille, Core Black / Cloud White). 1: the same model in other colorways."}
+{"id": "style-code-ai1203a899-105", "query": "ai1203a899-105", "filters": {"in_stock_only": false}, "tags": ["style-code"], "notes": "2: the product with style code ai1203a899-105 (ASICS GEL-1130, Cream / Pink Cloud). 1: GEL-1130 in other colorways."}
+{"id": "style-code-khma030255-001", "query": "khma030255-001", "filters": {"in_stock_only": false}, "tags": ["style-code"], "notes": "2: the product with style code khma030255-001 (Kith & the NFL for the New Orleans Saints Leon Shirt). 1: the same shirt in other colorways or teams."}
+{"id": "style-code-ch6101-32-ss26", "query": "ch6101-32-ss26", "filters": {"in_stock_only": false}, "tags": ["style-code"], "notes": "2: the product with style code ch6101-32-ss26 (Chamula Cancun Loafer, Sand Suede). 1: the same loafer in other colorways."}
+{"id": "warm-jacket-for-winter", "query": "warm jacket for winter", "tags": ["vague-intent"], "notes": "2: puffers, parkas, down or insulated jackets and coats. 1: fleece or heavy shell jackets. Light track or bomber jackets are not relevant."}
+{"id": "something-for-the-gym", "query": "something for the gym", "tags": ["vague-intent"], "notes": "2: training shoes, running shoes, athletic shorts, performance tees. 1: sweatpants, hoodies, other athleisure."}
+{"id": "comfortable-walking-shoes", "query": "comfortable shoes for walking all day", "tags": ["vague-intent"], "notes": "2: cushioned running or lifestyle-runner sneakers. 1: other casual sneakers. Not relevant: sandals, dress shoes, slides."}
+{"id": "rain-jacket", "query": "rain jacket", "tags": ["vague-intent"], "notes": "2: waterproof / water-resistant shells and rain jackets. 1: windbreakers. Not relevant: fleece, knitwear."}
+{"id": "gift-for-a-newborn", "query": "gift for a newborn", "tags": ["vague-intent", "kids"], "notes": "2: baby / infant clothing and accessories. 1: toddler items. Not relevant: anything adult-sized."}
+{"id": "lightweight-summer-tee", "query": "lightweight tee for summer", "tags": ["vague-intent"], "notes": "2: short-sleeve tees. 1: tanks, short-sleeve shirts. Not relevant: long sleeves, heavyweight knits."}
+{"id": "casual-everyday-sneakers", "query": "casual everyday sneakers", "tags": ["vague-intent"], "notes": "2: lifestyle low-top sneakers. 1: other sneakers. Not relevant: performance-only runners, boots, sandals."}
+{"id": "accessories-to-keep-warm", "query": "accessories to keep warm", "tags": ["vague-intent"], "notes": "2: beanies, scarves, gloves, ear warmers. 1: warm socks. Not relevant: caps, bags, sunglasses."}
+{"id": "suede-sneakers", "query": "suede sneakers", "tags": ["attribute"], "notes": "2: sneakers with a suede upper or suede overlays. 1: suede shoes that aren't sneakers. Leather-only sneakers are not relevant."}
+{"id": "leather-jacket", "query": "leather jacket", "tags": ["attribute"], "notes": "2: leather or suede jackets. 1: faux-leather jackets. Not relevant: jackets with only leather trim."}
+{"id": "gum-sole-sneakers", "query": "gum sole sneakers", "tags": ["attribute"], "notes": "2: sneakers whose description mentions a gum (rubber) outsole. 1: none."}
+{"id": "black-hoodie", "query": "black hoodie", "tags": ["attribute"], "notes": "2: hoodies in black (or mostly black colorway). 1: black crewneck sweatshirts. Hoodies in other colors are not relevant."}
+{"id": "green-track-jacket", "query": "green track jacket", "tags": ["attribute"], "notes": "2: track jackets in a green colorway. 1: green jackets of other kinds, or track jackets in other colors."}
+{"id": "sneakers-under-100", "query": "sneakers", "filters": {"max_price": 100}, "tags": ["filtered"], "notes": "2: any adult sneaker priced at $100 or less. 1: kids sneakers. The filter already excludes anything over $100."}
+{"id": "womens-hoodie", "query": "hoodie", "filters": {"genders": ["womens", "unisex"]}, "tags": ["filtered"], "notes": "2: women's or unisex hoodies. 1: women's crewneck sweatshirts."}
+{"id": "jacket-on-sale", "query": "jacket", "filters": {"on_sale_only": true}, "tags": ["filtered"], "notes": "2: any jacket or coat (the filter already limits to discounted items). 1: vests, overshirts."}
+{"id": "samba-size-10", "query": "samba", "filters": {"sizes": ["10"]}, "tags": ["filtered"], "notes": "2: any adult Samba with size 10 in stock. 1: other adidas terrace sneakers in size 10."}
+{"id": "apparel-tee-under-50", "query": "tee", "filters": {"categories": ["apparel"], "max_price": 50}, "tags": ["filtered"], "notes": "2: adult tees at $50 or less. 1: kids tees, tank tops."}
+{"id": "womens-bomber-under-200", "query": "bomber jacket", "filters": {"genders": ["womens"], "max_price": 200}, "tags": ["filtered"], "notes": "2: women's bomber jackets at $200 or less. 1: other women's jackets at $200 or less."}
+{"id": "kids-sneakers", "query": "kids sneakers", "tags": ["kids"], "notes": "2: kids' sneakers (TD / PS / GS / Kith Kids). Adult sneakers are not relevant."}
+{"id": "toddler-samba", "query": "toddler samba", "tags": ["kids"], "notes": "2: TD (toddler) Samba models. 1: PS / GS (older kids) Samba models. Adult Sambas are not relevant."}
+{"id": "kids-tee", "query": "kids tee", "tags": ["kids"], "notes": "2: kids' tees (short or long sleeve). 1: other kids' tops."}
+{"id": "typo-samba-espadrile", "query": "sambaa espadrile", "tags": ["typo"], "notes": "Same judgment as samba-espadrille. Tests misspellings: BM25 should struggle, dense should cope."}
+{"id": "alias-chuck-taylor-70s", "query": "chuck taylor 70s", "tags": ["typo"], "notes": "Same judgment as chuck-70. Tests a common alternative name."}
+{"id": "typo-nupste-puffer", "query": "nupste puffer", "tags": ["typo"], "notes": "2: The North Face Nuptse puffers. 1: other Nuptse products and other TNF puffers."}
+{"id": "typo-hoddie", "query": "kith hoddie", "tags": ["typo"], "notes": "2: Kith hoodies. 1: Kith crewneck sweatshirts."}
+{"id": "nomatch-womens-winter-parka", "query": "women's winter parka", "filters": {"genders": ["womens", "unisex"], "max_price": 300}, "tags": ["no-good-match"], "notes": "Probably nothing truly fits. Grade the closest real options as 1 (insulated or heavy jackets). If nothing is even close, skip; this becomes a generation behaviour case."}
+{"id": "nomatch-tuxedo", "query": "black tuxedo for a wedding", "tags": ["no-good-match"], "notes": "Kith likely doesn't sell tuxedos. 1: blazers or tailored jackets if any exist. Otherwise skip."}
+{"id": "nomatch-hiking-boots", "query": "waterproof hiking boots", "tags": ["no-good-match"], "notes": "2: waterproof hiking boots if any exist. 1: trail shoes or other boots. Otherwise skip."}
+{"id": "nl-black-sneakers-daily", "query": "I need a pair of black sneakers under 150 dollars that I can wear every day", "filters": {"max_price": 150}, "tags": ["natural-language"], "notes": "2: black (or mostly black) lifestyle sneakers at $150 or less. 1: black sneakers that are more performance-oriented. Price limit is in the filter."}
+{"id": "nl-hoodie-for-girlfriend", "query": "looking for a cozy hoodie for my girlfriend", "filters": {"genders": ["womens", "unisex"]}, "tags": ["natural-language"], "notes": "2: women's or unisex fleece / heavyweight hoodies. 1: other women's hoodies and sweatshirts."}
+{"id": "nl-newest-clot", "query": "what are the newest CLOT releases", "filters": {"in_stock_only": false}, "tags": ["natural-language", "collab"], "notes": "2: any CLOT collaboration product (retrieval can't judge 'newest'; recency is handled later). Nothing else is relevant."}
