@@ -10,8 +10,14 @@ and writes two files to evals/results/:
     retrieval_<timestamp>.md   the summary (commit this; it's your evidence)
     retrieval_<timestamp>.csv  one row per query per mode (for digging in)
 
-Query embeddings are cached in memory, so dense and hybrid share one OpenAI
-call per query, and a full run costs a fraction of a cent.
+The query-embedding cache is cleared before every dense and hybrid search,
+so each mode's latency includes its own OpenAI call (about 2 x 55 calls, a
+fraction of a cent).
+
+To measure one change, switch it off with an environment variable and label
+the run, e.g.:
+    ROUTE_CODES_TO_BM25=false python -m evals.run_retrieval_eval --label no-code-routing
+    RRF_WEIGHT_DENSE=1.5 python -m evals.run_retrieval_eval --label dense-1.5
 """
 
 from __future__ import annotations
@@ -26,10 +32,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from app.core import llm
 from app.core.config import get_settings
 from app.core.db import create_pool
 from app.retrieval.hybrid import hybrid_search
-from evals.dataset import DEFAULT_PATH, EvalCase, load_cases
+from evals.dataset import DEFAULT_PATH, EvalCase, load_cases, slugify
 from evals.metrics import mrr_at_k, ndcg_at_k, percentile, recall_at_k
 
 MODES = ("bm25", "dense", "hybrid")
@@ -53,6 +60,8 @@ async def evaluate(cases: list[EvalCase], k: int, modes: tuple[str, ...] = MODES
         for i, case in enumerate(cases, start=1):
             query = case.to_search_query(limit=k)
             for mode in modes:
+                if mode != "bm25":
+                    llm.clear_query_cache()      # honest latency: every mode embeds the query itself
                 res = await hybrid_search(pool, query, mode)
                 ranked = [r.product.product_id for r in res.results]
                 rows.append(Row(
@@ -72,7 +81,15 @@ def _mean(xs: list[float]) -> float:
     return statistics.fmean(xs) if xs else 0.0
 
 
-def summarize(rows: list[Row], k: int, modes: tuple[str, ...]) -> str:
+def settings_line() -> str:
+    s = get_settings()
+    on = lambda b: "on" if b else "off"
+    return (f"RRF weights bm25 {s.rrf_weight_bm25:g} / dense {s.rrf_weight_dense:g}; "
+            f"code routing {on(s.route_codes_to_bm25)}; fuzzy fallback {on(s.bm25_fuzzy_fallback)}; "
+            f"coverage weighting {on(s.bm25_coverage_weighting)}.")
+
+
+def summarize(rows: list[Row], k: int, modes: tuple[str, ...], label: str = "") -> str:
     by_mode: dict[str, list[Row]] = defaultdict(list)
     for r in rows:
         by_mode[r.mode].append(r)
@@ -80,10 +97,12 @@ def summarize(rows: list[Row], k: int, modes: tuple[str, ...]) -> str:
     s = get_settings()
 
     out = [
-        f"# Retrieval eval, {datetime.now():%Y-%m-%d %H:%M}",
+        f"# Retrieval eval, {datetime.now():%Y-%m-%d %H:%M}" + (f" ({label})" if label else ""),
         "",
         f"{n_cases} queries, k = {k}. Embeddings: {s.embedding_model} ({s.embedding_dimensions} dims); "
         f"RRF k = {s.rrf_k}; {s.retrieval_candidates} candidates per method.",
+        "",
+        settings_line(),
         "",
         f"| Mode | Recall@{k} | MRR | nDCG@{k} | p50 ms | p95 ms |",
         "|---|---|---|---|---|---|",
@@ -135,6 +154,7 @@ async def main() -> None:
     ap.add_argument("--tag", nargs="+", default=[], help="only cases with any of these tags")
     ap.add_argument("--modes", nargs="+", default=list(MODES), choices=MODES)
     ap.add_argument("--no-save", action="store_true", help="print only; don't write result files")
+    ap.add_argument("--label", default="", help="short name for this run, added to the report and file names")
     args = ap.parse_args()
     if not 1 <= args.k <= 50:
         ap.error("--k must be between 1 and 50")
@@ -147,12 +167,12 @@ async def main() -> None:
 
     modes = tuple(m for m in MODES if m in args.modes)
     rows = await evaluate(cases, args.k, modes)
-    report = summarize(rows, args.k, modes)
+    report = summarize(rows, args.k, modes, args.label)
     print(report)
 
     if not args.no_save:
         RESULTS_DIR.mkdir(exist_ok=True)
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S") + (f"_{slugify(args.label)}" if args.label else "")
         md, cs = RESULTS_DIR / f"retrieval_{stamp}.md", RESULTS_DIR / f"retrieval_{stamp}.csv"
         md.write_text(report, encoding="utf-8")
         write_csv(rows, cs)

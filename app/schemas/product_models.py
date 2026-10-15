@@ -9,7 +9,7 @@ own model when generation needs it.
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -53,3 +53,6 @@ class SearchResult(BaseModel):
     mode: SearchMode
     results: list[RetrievedProduct]
     timings_ms: dict[str, float] = Field(default_factory=dict)
+    # How the search was run: route taken, fusion weights, which query words
+    # BM25 could match. For debugging and evals; not shown to shoppers.
+    debug: dict[str, Any] = Field(default_factory=dict)
