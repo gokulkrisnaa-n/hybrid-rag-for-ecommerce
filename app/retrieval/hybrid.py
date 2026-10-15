@@ -145,16 +145,8 @@ def _print_result(res: SearchResult) -> None:
         print(f"  {i:>2}  {bm:>4}  {dn:>5}  {r.score:>8.4f}  {price:>8}  {p.title[:70]}{stock}")
 
 
-async def _cli() -> None:
-    import argparse
-
-    from app.core.db import create_pool
-    from app.schemas.query_models import SearchFilters
-
-    ap = argparse.ArgumentParser(description="Search the catalog.")
-    ap.add_argument("text", help="what to search for")
-    ap.add_argument("--mode", choices=["hybrid", "bm25", "dense", "all"], default="hybrid")
-    ap.add_argument("--limit", type=int, default=10)
+def add_filter_arguments(ap) -> None:
+    """Filter flags shared by this CLI and the eval labeling tool."""
     ap.add_argument("--min-price", type=float)
     ap.add_argument("--max-price", type=float)
     ap.add_argument("--gender", nargs="+", default=[], choices=["mens", "womens", "unisex", "kids"])
@@ -164,17 +156,31 @@ async def _cli() -> None:
     ap.add_argument("--size", nargs="+", default=[])
     ap.add_argument("--on-sale", action="store_true")
     ap.add_argument("--include-sold-out", action="store_true")
+
+
+def filters_from_args(args):
+    from app.schemas.query_models import SearchFilters
+
+    return SearchFilters(
+        min_price=args.min_price, max_price=args.max_price, genders=args.gender,
+        categories=args.category, subcategories=args.subcategory, brands=args.brand,
+        sizes=args.size, on_sale_only=args.on_sale, in_stock_only=not args.include_sold_out,
+    )
+
+
+async def _cli() -> None:
+    import argparse
+
+    from app.core.db import create_pool
+
+    ap = argparse.ArgumentParser(description="Search the catalog.")
+    ap.add_argument("text", help="what to search for")
+    ap.add_argument("--mode", choices=["hybrid", "bm25", "dense", "all"], default="hybrid")
+    ap.add_argument("--limit", type=int, default=10)
+    add_filter_arguments(ap)
     args = ap.parse_args()
 
-    query = SearchQuery(
-        text=args.text,
-        limit=args.limit,
-        filters=SearchFilters(
-            min_price=args.min_price, max_price=args.max_price, genders=args.gender,
-            categories=args.category, subcategories=args.subcategory, brands=args.brand,
-            sizes=args.size, on_sale_only=args.on_sale, in_stock_only=not args.include_sold_out,
-        ),
-    )
+    query = SearchQuery(text=args.text, limit=args.limit, filters=filters_from_args(args))
     modes: list[SearchMode] = ["bm25", "dense", "hybrid"] if args.mode == "all" else [args.mode]
 
     async with create_pool(max_size=4) as pool:
