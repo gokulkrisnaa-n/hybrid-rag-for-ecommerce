@@ -1,0 +1,36 @@
+# Retrieval eval, 2026-10-15 18:18 (plus-coverage)
+
+55 queries, k = 10. Embeddings: text-embedding-3-small (768 dims); RRF k = 60; 50 candidates per method.
+
+RRF weights bm25 1 / dense 1; code routing on; fuzzy fallback on; coverage weighting on.
+
+| Mode | Recall@10 | MRR | nDCG@10 | p50 ms | p95 ms |
+|---|---|---|---|---|---|
+| bm25 | 0.370 | 0.808 | 0.703 | 73 | 97 |
+| dense | 0.326 | 0.790 | 0.703 | 344 | 638 |
+| hybrid | 0.401 | 0.892 | 0.776 | 296 | 496 |
+
+## nDCG@10 by query type
+
+| Tag | Queries | bm25 | dense | hybrid |
+|---|---|---|---|---|
+| attribute | 5 | 0.913 | 0.783 | **0.927** |
+| brand | 4 | 0.857 | **0.989** | 0.931 |
+| collab | 7 | **0.933** | 0.843 | 0.894 |
+| exact-name | 8 | **0.979** | 0.683 | 0.877 |
+| filtered | 6 | 0.856 | 0.816 | **0.867** |
+| kids | 4 | 0.731 | **1.000** | 0.976 |
+| model-family | 1 | 0.870 | **0.958** | 0.936 |
+| natural-language | 3 | 0.615 | 0.791 | **0.799** |
+| no-good-match | 3 | 0.087 | **0.410** | 0.343 |
+| style-code | 4 | 0.887 | 0.000 | 0.887 |
+| typo | 4 | 0.386 | **0.573** | 0.527 |
+| vague-intent | 8 | 0.148 | **0.697** | 0.480 |
+
+## Weakest queries per mode (lowest nDCG@10)
+
+**bm25**: `accessories-to-keep-warm` (0.00), `gift-for-a-newborn` (0.00), `nomatch-tuxedo` (0.00), `nomatch-womens-winter-parka` (0.00), `rain-jacket` (0.00)
+
+**dense**: `chuck-70` (0.00), `clot` (0.00), `court-jacket` (0.00), `nomatch-womens-winter-parka` (0.00), `style-code-aaki4323` (0.00)
+
+**hybrid**: `nomatch-womens-winter-parka` (0.00), `typo-nupste-puffer` (0.00), `warm-jacket-for-winter` (0.00), `comfortable-walking-shoes` (0.08), `rain-jacket` (0.23)

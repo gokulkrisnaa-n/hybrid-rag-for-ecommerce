@@ -84,7 +84,7 @@ async def hybrid_search(
         async with pool.connection() as conn:
             # A style code is split into pieces by the tokenizer ("ai1203a899-105"
             # -> "ai1203a899", "105"), so per-word checks would only mislead.
-            plan = None if code_query else await plan_sparse(conn, query.text, fuzzy=s.bm25_fuzzy_fallback)
+            plan = None if code_query else await plan_sparse(conn, query.text, query.filters, fuzzy=s.bm25_fuzzy_fallback)
             hits = await search_sparse(conn, query.text, query.filters, k,
                                        fuzzy_terms=plan.fuzzy if plan else None)
         return hits, plan

@@ -63,28 +63,40 @@ LIMIT %(k)s
 """)
 
 
-def _exists(param: str, fuzzy: int = 0) -> sql.Composable:
+def _exists(param: str, where: sql.Composable, fuzzy: int = 0) -> sql.Composable:
     rhs = sql.Placeholder(param)
     if fuzzy:
         # The distance is part of the type, so it can't be a parameter; it is always 1 or 2.
         rhs = sql.SQL("{}::pdb.fuzzy({})").format(rhs, sql.SQL(str(int(fuzzy))))
-    return sql.SQL("EXISTS (SELECT 1 FROM clean.products WHERE is_active AND search_text ||| {})").format(rhs)
+    return sql.SQL("EXISTS (SELECT 1 FROM clean.products WHERE search_text ||| {} AND {})").format(rhs, where)
 
 
-async def plan_sparse(conn: AsyncConnection, text: str, *, fuzzy: bool = True) -> SparsePlan:
-    """One round trip: does each query word (and, if not, a near-miss of it) occur in the catalog?"""
+async def plan_sparse(
+    conn: AsyncConnection,
+    text: str,
+    filters: SearchFilters,
+    *,
+    fuzzy: bool = True,
+) -> SparsePlan:
+    """
+    One round trip: does each query word (and, if not, a near-miss of it)
+    occur in a product the search can return? Checked under the same filters
+    as the search: a word found only in sold-out products is no help to an
+    in-stock search, so it should count as missing and be retried fuzzily.
+    """
     plan = SparsePlan(terms=content_terms(text))
     if not plan.terms:
         return plan
 
+    where = build_where(filters)
     cols: list[sql.Composable] = []
-    params: dict[str, str] = {}
+    params: dict = dict(where.params)
     for i, term in enumerate(plan.terms):
         params[f"t{i}"] = term
-        cols.append(sql.SQL("{} AS {}").format(_exists(f"t{i}"), sql.Identifier(f"e{i}")))
+        cols.append(sql.SQL("{} AS {}").format(_exists(f"t{i}", where.clause), sql.Identifier(f"e{i}")))
         d = fuzzy_distance(term) if fuzzy else 0
         if d:
-            cols.append(sql.SQL("{} AS {}").format(_exists(f"t{i}", d), sql.Identifier(f"f{i}")))
+            cols.append(sql.SQL("{} AS {}").format(_exists(f"t{i}", where.clause, d), sql.Identifier(f"f{i}")))
 
     cur = await conn.execute(sql.SQL("SELECT {}").format(sql.SQL(", ").join(cols)), params)
     row = await cur.fetchone() or {}

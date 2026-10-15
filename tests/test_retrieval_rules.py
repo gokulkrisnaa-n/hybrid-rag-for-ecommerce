@@ -18,7 +18,7 @@ from app.retrieval import hybrid, sparse
 from app.retrieval.query_analysis import content_terms, fuzzy_distance, is_code_query
 from app.retrieval.sparse import Hit, SparsePlan
 from app.schemas.product_models import ProductCard
-from app.schemas.query_models import SearchQuery
+from app.schemas.query_models import SearchFilters, SearchQuery
 
 
 # ---------------------------------------------------------------------------
@@ -94,20 +94,20 @@ def render(query) -> str:
 
 async def test_plan_sparse_classifies_terms():
     conn = RecordingConn(row={"e0": True, "e1": False, "f1": True, "e2": False, "f2": False})
-    plan = await sparse.plan_sparse(conn, "kith hoddie zzzzqx")
+    plan = await sparse.plan_sparse(conn, "kith hoddie zzzzqx", SearchFilters(max_price=100))
     assert plan.exact == ["kith"] and plan.fuzzy == {"hoddie": 2} and plan.missing == ["zzzzqx"]
     text = render(conn.calls[0][0])
-    assert "search_text ||| %(t1)s::pdb.fuzzy(2)" in text
+    assert "search_text ||| %(t1)s::pdb.fuzzy(2) AND is_active AND in_stock AND price_min <= %(f_max_price)s" in text
     assert text.count("EXISTS") == 6          # exact + fuzzy for each of the three words
-    assert conn.calls[0][1] == {"t0": "kith", "t1": "hoddie", "t2": "zzzzqx"}
+    assert conn.calls[0][1] == {"t0": "kith", "t1": "hoddie", "t2": "zzzzqx", "f_max_price": 100}
 
 
 async def test_plan_sparse_without_fuzzy_or_terms():
     conn = RecordingConn(row={"e0": False})
-    plan = await sparse.plan_sparse(conn, "nupste", fuzzy=False)
+    plan = await sparse.plan_sparse(conn, "nupste", SearchFilters(), fuzzy=False)
     assert plan.missing == ["nupste"] and "fuzzy" not in render(conn.calls[0][0])
     empty = RecordingConn()
-    assert (await sparse.plan_sparse(empty, "for the")).terms == [] and empty.calls == []
+    assert (await sparse.plan_sparse(empty, "for the", SearchFilters())).terms == [] and empty.calls == []
 
 
 async def test_search_sparse_adds_fuzzy_clauses():
@@ -149,7 +149,7 @@ def fake_search(monkeypatch):
     hybrid.get_settings.cache_clear()
     state = {"sparse": [], "dense": [], "plan": SparsePlan(terms=["q"], exact=["q"]), "calls": []}
 
-    async def fake_plan(conn, text, *, fuzzy=True):
+    async def fake_plan(conn, text, filters, *, fuzzy=True):
         state["calls"].append(("plan", fuzzy))
         return state["plan"]
 
