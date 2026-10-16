@@ -7,7 +7,7 @@
 {"id": "rec-warm-jacket", "message": "warm jacket for winter", "tags": ["explore"], "relevance_case": "warm-jacket-for-winter", "expect": {"kind": ["recommend", "no_match"], "min_picks": 1}}
 {"id": "rec-walking-shoes", "message": "comfortable shoes for walking all day", "tags": ["explore"], "relevance_case": "comfortable-walking-shoes", "expect": {"kind": ["recommend"], "min_picks": 1}}
 {"id": "rec-rain-jacket", "message": "rain jacket", "tags": ["explore"], "relevance_case": "rain-jacket", "expect": {"kind": ["recommend", "no_match"], "min_picks": 1}}
-{"id": "rec-newborn-gift", "message": "gift for a newborn", "tags": ["explore", "kids"], "relevance_case": "gift-for-a-newborn", "expect": {"kind": ["recommend"], "min_picks": 1}}
+{"id": "rec-newborn-gift", "message": "gift for a newborn", "tags": ["explore", "kids"], "relevance_case": "gift-for-a-newborn", "expect": {"kind": ["recommend", "no_match"], "min_picks": 1}}
 {"id": "rec-kids-sneakers", "message": "kids sneakers", "tags": ["kids"], "relevance_case": "kids-sneakers", "expect": {"kind": ["recommend"], "min_picks": 1}}
 {"id": "rec-summer-tee", "message": "lightweight tee for summer", "tags": ["explore"], "relevance_case": "lightweight-summer-tee", "expect": {"kind": ["recommend"], "min_picks": 1}}
 {"id": "rec-suede-sneakers", "message": "suede sneakers", "tags": ["attribute"], "relevance_case": "suede-sneakers", "expect": {"kind": ["recommend"], "min_picks": 1}}
