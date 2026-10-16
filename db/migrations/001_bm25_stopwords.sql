@@ -2,7 +2,7 @@
 -- db/schema.sql already has the new definition (for fresh databases); this
 -- file updates an existing one. Takes a few seconds for 25k products.
 --
---   docker exec -i kith-db psql -U kith -d kith_rag < db/migrations/001_bm25_stopwords.sql
+--   docker exec -i kith-db sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < db/migrations/001_bm25_stopwords.sql
 
 BEGIN;
 
