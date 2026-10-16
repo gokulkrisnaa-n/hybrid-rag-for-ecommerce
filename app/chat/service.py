@@ -49,7 +49,9 @@ async def chat(
     message: str,
     history: list[Turn] | None = None,
     filters: SearchFilters | None = None,
+    include_context: bool = False,
 ) -> ChatAnswer:
+    """`include_context` adds the product blocks the model saw to debug (the eval's judge needs them)."""
     s = get_settings()
     started = time.perf_counter()
     history = list(history or [])[-s.chat_history_turns:]
@@ -87,6 +89,7 @@ async def chat(
 
     timings["generate"] = round(draft.latency_ms, 1)
     answer = validate(draft.answer, cards, s.generation_max_picks)
+    extra = {"context": context} if include_context else {}
     return finish(answer, prompt=PROMPT_VERSION, model=s.generation_model,
                   tokens={"input": draft.input_tokens, "output": draft.output_tokens},
-                  draft=draft.answer.model_dump(mode="json"))
+                  draft=draft.answer.model_dump(mode="json"), **extra)
