@@ -233,3 +233,51 @@ async def test_history_is_trimmed(pipeline, monkeypatch):
     hist = [Turn(role="user", content=f"m{i}") for i in range(5)]
     await service.chat(None, "next", hist)
     assert pipeline["search_args"]["history"] == ["m3", "m4"]
+
+
+# ---------------------------------------------------------------------------
+# the generation eval's checks
+# ---------------------------------------------------------------------------
+
+def test_gen_cases_file_is_valid():
+    from evals.run_generation_eval import load_gen_cases
+    from evals.dataset import load_cases
+    cases = load_gen_cases()
+    truth = {c.id for c in load_cases()}
+    assert len(cases) >= 30
+    assert all(c["relevance_case"] in truth for c in cases if "relevance_case" in c)
+
+
+def test_check_answer_rules():
+    from evals.run_generation_eval import check_answer, pick_precision
+    from app.generation.schemas import AnswerProduct, ChatAnswer, ComparisonRow, ComparisonTable
+
+    cheap, pricey = card(1, price_min=Decimal("90"), price_max=Decimal("90")), card(2)
+    sold = card(3, in_stock=False)
+    a = ChatAnswer(kind="recommend", message="Two good Samba picks.",
+                   products=[AnswerProduct(product=cheap, reason="Gum sole."),
+                             AnswerProduct(product=pricey, reason="Classic.")],
+                   warnings=["price or discount written in the text"])
+    case = {"expect": {"kind": ["recommend"], "min_picks": 1, "mention": ["samba"], "not_mention": ["free"]},
+            "filters": {"max_price": 95}}
+    r = check_answer(case, a)
+    assert r["kind"][0] and r["picks"][0] and r["valid_ids"][0] and r["mention"][0] and r["not_mention"][0]
+    assert not r["no_price_text"][0]
+    assert not r["filters"][0] and "2: price 100" in r["filters"][1]
+    assert "compare_table" not in r
+
+    comp = ChatAnswer(kind="compare", message="x", source="llm",
+                      products=[AnswerProduct(product=cheap, reason=""), AnswerProduct(product=sold, reason="")],
+                      comparison=ComparisonTable(columns=["A"], rows=[ComparisonRow(product_id=1, title="t", values=["v"])]))
+    r = check_answer({"expect": {"kind": ["compare"], "min_picks": 2}}, comp)
+    assert not r["compare_table"][0] and not r["filters"][0] and "sold out" in r["filters"][1]
+
+    oos = ChatAnswer(kind="out_of_scope", message="I can only help…", source="template")
+    r = check_answer({"expect": {"kind": ["out_of_scope"], "source": "template", "max_picks": 0}}, oos)
+    assert all(p for p, _ in r.values())
+    fb = ChatAnswer(kind="recommend", message="Here are the closest matches I found.", source="template",
+                    products=[AnswerProduct(product=cheap, reason="")], warnings=["generation failed: Timeout"])
+    assert not check_answer({"expect": {"kind": ["recommend"]}}, fb)["no_fallback"][0]
+
+    assert pick_precision(a, {1: 2}) == (0.5, True)
+    assert pick_precision(oos, {1: 2}) is None
