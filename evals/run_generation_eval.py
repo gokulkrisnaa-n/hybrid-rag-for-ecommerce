@@ -6,7 +6,8 @@ understanding, hybrid search, generation) and checks what code can check
 exactly, with no judge model:
 
     kind            answer kind is one of the expected kinds
-    no_fallback     the LLM answered (no template fallback), unless a template was expected
+    no_fallback     no fallback to "closest matches" because generation failed or gave no valid picks
+                    (deliberate fixed replies, e.g. out of scope, are fine)
     picks           number of picked products within min_picks / max_picks
     valid_ids       no picked product outside the retrieved set
     no_price_text   no price, dollar amount or "% off" written in the text
@@ -101,10 +102,13 @@ def check_answer(case: dict, a: ChatAnswer) -> dict[str, tuple[bool, str]]:
     out: dict[str, tuple[bool, str]] = {}
 
     out["kind"] = (a.kind in exp["kind"], f"{a.kind} (expected {'/'.join(exp['kind'])})")
+    # A fallback is generation failing (or producing no usable picks) and the shopper getting
+    # "here are the closest matches". A deliberate fixed reply (out of scope, no results) is not one.
+    fell_back = a.kind == "error" or any(w.startswith(("generation failed", "no valid picks")) for w in a.warnings)
     if "source" in exp:
-        out["no_fallback"] = (a.source == exp["source"], a.source)
+        out["no_fallback"] = (a.source == exp["source"] and not fell_back, a.source)
     else:
-        out["no_fallback"] = (a.source == "llm", a.source if a.source == "llm" else f"template: {a.warnings[:1]}")
+        out["no_fallback"] = (not fell_back, "ok" if not fell_back else f"fallback: {a.warnings[:1]}")
     lo, hi = exp.get("min_picks", 0), exp.get("max_picks", get_settings().generation_max_picks)
     out["picks"] = (lo <= n <= hi, f"{n} picks (expected {lo}-{hi})")
     unknown = [w for w in a.warnings if "unknown product_id" in w]
