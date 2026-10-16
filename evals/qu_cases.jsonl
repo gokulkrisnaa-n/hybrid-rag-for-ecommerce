@@ -24,3 +24,8 @@
 {"id": "cheap-socks", "query": "cheap socks", "expect": {"max_price": null, "min_price": null, "categories": ["accessories"]}}
 {"id": "collab-kith-asics", "query": "kith x asics", "expect": {"intent": "specific", "brands": ["kith", "asics"]}}
 {"id": "no-gender-sneakers", "query": "white leather sneakers", "expect": {"genders": [], "categories": ["footwear"], "search_text_contains": ["white", "leather"]}}
+{"id": "compare-samba-gazelle", "query": "compare the adidas samba og and the gazelle", "expect": {"compare_items_count": 2, "intent": "specific", "categories": ["footwear"]}}
+{"id": "compare-nuptse-vs-himalayan", "query": "nuptse vs himalayan which is warmer", "expect": {"compare_items_count": 2, "categories": ["apparel"]}}
+{"id": "followup-cheaper-hoodie", "query": "something cheaper", "history": ["black hoodie"], "expect": {"search_text_contains": ["black", "hoodie"], "standalone_contains": ["black", "hoodie", "cheaper"], "max_price": null, "compare_items_count": 0}}
+{"id": "followup-for-women", "query": "for women?", "history": ["adidas samba og"], "expect": {"search_text_contains": ["samba"], "genders": ["womens", "unisex"]}}
+{"id": "no-compare-single", "query": "adidas samba og", "expect": {"compare_items_count": 0}}
