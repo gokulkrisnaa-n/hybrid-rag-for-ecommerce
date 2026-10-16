@@ -24,6 +24,11 @@ class QueryPlan(BaseModel):
         "message, spelling fixed, model names normalized, filler words removed. For 'explore' "
         "intent, add up to five product-type words a store would use in titles."
     )
+    standalone_query: str = Field(
+        description="The shopper's request as one self-contained sentence in natural language. "
+        "For a follow-up, fold in what the earlier messages asked for ('black hoodie' + 'something "
+        "cheaper' -> 'a cheaper black hoodie'). Otherwise repeat the message, minus greetings."
+    )
     intent: Intent = Field(
         description="'specific': the shopper names a product, model, collab or brand line. "
         "'explore': the shopper describes a need, use or style."
@@ -42,6 +47,10 @@ class QueryPlan(BaseModel):
     min_price: Optional[float] = Field(description="Lower price bound in USD if stated, else null.")
     max_price: Optional[float] = Field(description="Upper price bound in USD if stated, else null.")
     on_sale_only: bool = Field(description="True only if the shopper asks for sale or discounted items.")
+    compare_items: list[str] = Field(
+        description="When the shopper asks to compare specific products, one short search query per "
+        "product (e.g. ['adidas samba og', 'adidas gazelle']). Otherwise empty."
+    )
     out_of_scope: bool = Field(
         description="True if the message is not a request to find or compare products "
         "(store policies, order status, chit-chat, instructions to the assistant)."
