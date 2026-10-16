@@ -76,7 +76,8 @@ class Settings(BaseSettings):
     # Set to an empty value (QUERY_REASONING_EFFORT=) for models that don't support it.
     query_reasoning_effort: Optional[str] = "low"
     # What vector search embeds when query understanding ran: "original" (the
-    # shopper's message) or "rewrite" (the plan's keyword search_text). BM25
+    # shopper's message; for a follow-up, the plan's self-contained standalone_query)
+    # or "rewrite" (the plan's keyword search_text). BM25
     # always gets the rewrite: fixed spelling and expansion help exact matching,
     # while a keyword list loses the sentence meaning embeddings are good at.
     qu_dense_text: Literal["original", "rewrite"] = "original"
