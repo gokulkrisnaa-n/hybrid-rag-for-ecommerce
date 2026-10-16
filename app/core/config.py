@@ -81,6 +81,14 @@ class Settings(BaseSettings):
     # while a keyword list loses the sentence meaning embeddings are good at.
     qu_dense_text: Literal["original", "rewrite"] = "original"
 
+    # --- Generation (app/generation, app/chat) -----------------------------------
+    generation_candidates: int = 8         # products retrieved and shown to the model
+    generation_max_picks: int = 5          # products the answer may recommend
+    generation_timeout_seconds: float = 25.0
+    generation_max_retries: int = 1
+    generation_reasoning_effort: Optional[str] = "low"   # empty value to omit for models without it
+    chat_history_turns: int = 6            # earlier turns passed to the model
+
     # HNSW scans only `ef_search` candidates and filters AFTER the scan, so a
     # query can never return more than ef_search rows (pgvector's default is 40).
     # Keep this above retrieval_candidates.
