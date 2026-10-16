@@ -278,6 +278,8 @@ def test_check_answer_rules():
     fb = ChatAnswer(kind="recommend", message="Here are the closest matches I found.", source="template",
                     products=[AnswerProduct(product=cheap, reason="")], warnings=["generation failed: Timeout"])
     assert not check_answer({"expect": {"kind": ["recommend"]}}, fb)["no_fallback"][0]
+    # A deliberate fixed reply is not a fallback, even without "source" in the expectations.
+    assert check_answer({"expect": {"kind": ["out_of_scope", "clarify"]}}, oos)["no_fallback"][0]
 
     assert pick_precision(a, {1: 2}) == (0.5, True)
     assert pick_precision(oos, {1: 2}) is None
