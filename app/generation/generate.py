@@ -144,8 +144,8 @@ def validate(draft: AnswerDraft, cards: list[ProductCard], max_picks: int) -> Ch
 # ---------------------------------------------------------------------------
 
 OUT_OF_SCOPE_MESSAGE = (
-    "I can help you find and compare products at Kith. For orders, returns, shipping or other "
-    "store questions, please check Kith's help center or contact their customer service."
+    "I can only help with finding and comparing products at Kith. For orders, returns, shipping "
+    "or other store questions, please check Kith's help center or contact their customer service."
 )
 NO_RESULTS_MESSAGE = (
     "I couldn't find any products matching that. Try different words, or remove a filter such as "
