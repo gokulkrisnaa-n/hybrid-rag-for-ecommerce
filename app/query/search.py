@@ -80,8 +80,32 @@ async def search(
     r = resolve(u.plan, explicit, vocab, raw.text)
     qu.update(search_text=r.text, inferred_filters=r.inferred, dropped=r.dropped, weights=r.weights)
 
-    dense_text = raw.text if s.qu_dense_text == "original" else None
-    qu["dense_text"] = s.qu_dense_text
+    # Vector search reads natural language best, so it embeds the shopper's own words
+    # rather than the keyword rewrite. A follow-up ("something cheaper") means nothing
+    # alone, so then it embeds the plan's self-contained version ("a cheaper black hoodie").
+    if s.qu_dense_text == "rewrite":
+        dense_text = None
+    elif history and u.plan.standalone_query.strip():
+        dense_text = " ".join(u.plan.standalone_query.split())
+    else:
+        dense_text = raw.text
+    qu["dense_text"] = dense_text or r.text
+
+    items = [" ".join(i.split()) for i in u.plan.compare_items if i and i.strip()][:4]
+    if len(items) >= 2:
+        # "Samba OG vs Gazelle": one search finds the stronger match and buries the other.
+        # Search each product on its own (brand filters dropped: the items may differ) and
+        # interleave, so every compared product is in the candidates.
+        item_filters = r.filters.model_copy(update={"brands": explicit.brands})
+        per_item = max(2, limit // len(items))
+        runs = await asyncio.gather(*(
+            hybrid_search(pool, SearchQuery(text=it, filters=item_filters, limit=per_item))
+            for it in items
+        ))
+        res = _interleave(runs, limit)
+        qu["compare_items"] = items
+        res.timings_ms["understand"] = round(u.latency_ms, 1)
+        return finish(res, qu)
     query = SearchQuery(text=r.text, filters=r.filters, limit=limit)
     res = await hybrid_search(pool, query, weights=r.weights, dense_text=dense_text)
 
@@ -95,6 +119,20 @@ async def search(
 
     res.timings_ms["understand"] = round(u.latency_ms, 1)
     return finish(res, qu)
+
+
+def _interleave(runs: list[SearchResult], limit: int) -> SearchResult:
+    """Round-robin over several result lists: 1st of each, then 2nd of each, ...; no duplicates."""
+    seen: set[int] = set()
+    merged = []
+    for rank in range(max((len(r.results) for r in runs), default=0)):
+        for r in runs:
+            if rank < len(r.results) and r.results[rank].product.product_id not in seen:
+                seen.add(r.results[rank].product.product_id)
+                merged.append(r.results[rank])
+    timings = {k: max(r.timings_ms.get(k, 0.0) for r in runs) for r in runs for k in r.timings_ms}
+    return SearchResult(mode="hybrid", results=merged[:limit], timings_ms=timings,
+                        debug={"route": "compare-items", "items": [r.debug for r in runs]})
 
 
 # ===========================================================================

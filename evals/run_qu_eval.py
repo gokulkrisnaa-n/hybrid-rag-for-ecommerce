@@ -17,6 +17,10 @@ is what search actually uses):
     min_price, max_price                          equal number; null means "not set"
     intent, audience, on_sale_only, out_of_scope  equal
     search_text_contains                          every word appears in search_text
+    compare_items_count                           number of products to compare
+    standalone_contains                           every word appears in standalone_query
+
+A case can also carry "history": ["earlier message", ...] (the shopper's earlier turns).
 
 Writes evals/results/qu_<timestamp>.md (commit it).
 """
@@ -74,6 +78,12 @@ def check(expect: dict, got: dict) -> dict[str, tuple[bool, object, object]]:
             out[f] = (ok, exp, g)
         elif f in EXACT_FIELDS:
             out[f] = (got.get(f) == exp, exp, got.get(f))
+        elif f == "compare_items_count":
+            n = len(got.get("compare_items", []))
+            out[f] = (n == exp, exp, got.get("compare_items", []))
+        elif f == "standalone_contains":
+            text = got.get("standalone_query", "").lower()
+            out[f] = (all(w.lower() in text for w in exp), exp, got.get("standalone_query", ""))
         elif f == "search_text_contains":
             text = got.get("search_text", "").lower()
             missing = [w for w in exp if w.lower() not in text]
@@ -89,7 +99,7 @@ async def run(cases: list[dict]) -> list[dict]:
         vocab = await load_vocabulary(pool)
         for i, c in enumerate(cases, start=1):
             try:
-                u = await understand(c["query"], vocab)
+                u = await understand(c["query"], vocab, c.get("history"))
             except Exception as e:     # noqa: BLE001 - a failed call is a failed case, not a crash
                 rows.append({"case": c, "error": f"{type(e).__name__}: {e}"[:300], "checks": {}})
                 continue
