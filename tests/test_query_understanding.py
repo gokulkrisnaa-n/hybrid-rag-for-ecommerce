@@ -42,8 +42,9 @@ VOCAB = Vocabulary(
 
 
 def plan(**kw) -> QueryPlan:
-    base = dict(search_text="hoodie", intent="explore", audience="adult", categories=[], subcategories=[],
-                genders=[], brands=[], min_price=None, max_price=None, on_sale_only=False, out_of_scope=False)
+    base = dict(search_text="hoodie", standalone_query="a hoodie", intent="explore", audience="adult", categories=[], subcategories=[],
+                genders=[], brands=[], min_price=None, max_price=None, on_sale_only=False,
+                compare_items=[], out_of_scope=False)
     return QueryPlan(**{**base, **kw})
 
 
@@ -250,6 +251,20 @@ async def test_plan_drives_the_search(pipeline):
     assert res.timings_ms["understand"] == 400.0 and "total" in res.timings_ms
 
 
+async def test_follow_up_embeds_the_standalone_query(pipeline):
+    pipeline["plan"] = plan(search_text="black hoodie", standalone_query="a cheaper black hoodie")
+    res = await search_mod.search(None, "something cheaper", history=["black hoodie"])
+    assert pipeline["searches"][0][0].text == "black hoodie"
+    assert pipeline["dense_texts"] == ["a cheaper black hoodie"]
+    assert res.debug["qu"]["dense_text"] == "a cheaper black hoodie"
+
+
+async def test_single_turn_ignores_standalone_query(pipeline):
+    pipeline["plan"] = plan(standalone_query="a rephrased request")
+    await search_mod.search(None, "cozy hoodie")
+    assert pipeline["dense_texts"] == ["cozy hoodie"]
+
+
 async def test_dense_can_embed_the_rewrite(pipeline, monkeypatch):
     monkeypatch.setenv("QU_DENSE_TEXT", "rewrite")
     from app.core.config import get_settings
@@ -292,6 +307,35 @@ async def test_too_few_results_relaxes_inferred_filters(pipeline):
     assert len(res.results) == 10 and "relaxed" in res.debug["qu"]
 
 
+async def test_compare_items_are_searched_separately_and_interleaved(pipeline, monkeypatch):
+    from tests.test_retrieval_rules import card
+    from app.schemas.product_models import RetrievedProduct
+
+    async def per_item(pool, query, mode="hybrid", weights=None, dense_text=None):
+        pipeline["searches"].append((query, weights))
+        base = 100 if "samba" in query.text else 200
+        ids = [base + i for i in range(query.limit)] + ([100] if base == 200 else [])   # 100 duplicated
+        return SearchResult(mode="hybrid", results=[RetrievedProduct(product=card(i), score=1.0) for i in ids],
+                            timings_ms={"total": 50.0})
+
+    monkeypatch.setattr(search_mod, "hybrid_search", per_item)
+    pipeline["plan"] = plan(compare_items=["adidas samba og", "adidas gazelle"], brands=["adidas"],
+                            categories=["footwear"], intent="specific")
+    res = await search_mod.search(None, "compare samba og and gazelle", limit=6)
+    texts = [q.text for q, _ in pipeline["searches"]]
+    assert texts == ["adidas samba og", "adidas gazelle"]
+    q0 = pipeline["searches"][0][0]
+    assert q0.limit == 3 and q0.filters.categories == ["footwear"] and q0.filters.brands == []
+    assert [r.product.product_id for r in res.results] == [100, 200, 101, 201, 102, 202]
+    assert res.debug["qu"]["compare_items"] == texts
+
+
+async def test_single_compare_item_is_a_normal_search(pipeline):
+    pipeline["plan"] = plan(compare_items=["adidas samba og"])
+    await search_mod.search(None, "adidas samba og")
+    assert len(pipeline["searches"]) == 1
+
+
 async def test_no_relaxation_without_inferred_filters(pipeline):
     pipeline["plan"] = plan(audience="any")
     pipeline["n_results"] = [1]
@@ -318,5 +362,7 @@ def test_qu_eval_check():
                  "intent": "specific", "search_text_contains": ["black", "sneaker", "leather"]}, got)
     assert res["categories"][0] and res["genders"][0] and res["max_price"][0] and res["min_price"][0]
     assert not res["intent"][0] and not res["search_text_contains"][0]
+    assert check({"compare_items_count": 0}, got)["compare_items_count"][0]
+    assert not check({"compare_items_count": 2}, {**got, "compare_items": ["a"]})["compare_items_count"][0]
     with pytest.raises(ValueError):
         check({"colour": "black"}, got)
