@@ -38,6 +38,7 @@ htmlcov/
 # ---------------------------------------------------------------
 data/
 *.jsonl
+!evals/*.jsonl
 *.parquet
 *.csv
 dumps/
