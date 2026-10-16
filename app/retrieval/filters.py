@@ -43,6 +43,9 @@ def build_where(f: SearchFilters) -> WhereClause:
     if f.genders:
         conds.append(sql.SQL("gender = ANY(%(f_genders)s)"))
         params["f_genders"] = list(f.genders)
+    if f.exclude_genders:
+        conds.append(sql.SQL("(gender IS NULL OR NOT (gender = ANY(%(f_exclude_genders)s)))"))
+        params["f_exclude_genders"] = list(f.exclude_genders)
     if f.categories:
         conds.append(sql.SQL("category = ANY(%(f_categories)s)"))
         params["f_categories"] = f.categories

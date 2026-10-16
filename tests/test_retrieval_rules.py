@@ -163,6 +163,7 @@ def fake_search(monkeypatch):
 
     async def fake_embed(text):
         state["calls"].append(("embed",))
+        state["embedded"] = text
         return [0.0]
 
     async def fake_cards(pool, ids):
@@ -234,7 +235,26 @@ async def test_coverage_weighting_can_be_switched_off(fake_search, monkeypatch):
     assert res.debug["weights"] == {"bm25": 1.0, "dense": 1.5}
 
 
+async def test_dense_text_is_embedded_instead_of_query_text(fake_search):
+    await hybrid.hybrid_search(FakePool(), SearchQuery(text="black sneakers", limit=4), dense_text="I need black sneakers")
+    assert fake_search["embedded"] == "I need black sneakers"
+    await hybrid.hybrid_search(FakePool(), SearchQuery(text="black sneakers", limit=4))
+    assert fake_search["embedded"] == "black sneakers"
+
+
 async def test_single_modes_unchanged(fake_search):
     fake_search["sparse"], fake_search["dense"] = [1, 2], [9, 8]
     assert ids(await hybrid.hybrid_search(FakePool(), SearchQuery(text="samba", limit=10), "bm25")) == [1, 2]
     assert ids(await hybrid.hybrid_search(FakePool(), SearchQuery(text="samba", limit=10), "dense")) == [9, 8]
+
+
+def test_pool_never_prepares_statements(monkeypatch):
+    """ParadeDB's ||| fails under generic plans, which prepared statements can switch to."""
+    monkeypatch.setenv("DATABASE_URL", "postgresql://x")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    from app.core.config import get_settings
+    from app.core.db import create_pool
+    get_settings.cache_clear()
+    pool = create_pool()
+    assert pool.kwargs["prepare_threshold"] is None and pool.kwargs["autocommit"] is True
+    get_settings.cache_clear()

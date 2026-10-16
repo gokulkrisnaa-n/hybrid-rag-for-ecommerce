@@ -25,6 +25,9 @@ class SearchFilters(BaseModel):
     min_price: Optional[Decimal] = Field(default=None, ge=0)
     max_price: Optional[Decimal] = Field(default=None, ge=0)
     genders: list[Gender] = Field(default_factory=list)        # e.g. ["womens", "unisex"]
+    # Leave these out. Unlike `genders`, products with no known gender stay in,
+    # so "adult products" (exclude kids) doesn't drop the ~4% that are unlabeled.
+    exclude_genders: list[Gender] = Field(default_factory=list)
     categories: list[str] = Field(default_factory=list)        # e.g. ["footwear"]
     subcategories: list[str] = Field(default_factory=list)     # e.g. ["low top sneakers"]
     brands: list[str] = Field(default_factory=list)            # matches brand OR collaborator

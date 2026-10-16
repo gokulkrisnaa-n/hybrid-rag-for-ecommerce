@@ -21,11 +21,19 @@ def create_pool(url: str | None = None, *, min_size: int = 1, max_size: int = 10
 
     autocommit=True: single statements commit on their own, and
     `async with conn.transaction():` blocks are real transactions.
+
+    prepare_threshold=None: never turn queries into server-side prepared
+    statements. psycopg does that by default after a query has run 5 times,
+    and Postgres may then plan it once for any parameter value (a "generic
+    plan"). ParadeDB needs the search text itself when planning
+    `search_text ||| %(q)s`, so a generic plan fails with "The right-hand side
+    of the `|||` operator must be a text or text array value". Search queries
+    are cheap to plan, so preparing them saves nothing anyway.
     """
     return AsyncConnectionPool(
         conninfo=url or get_settings().database_url,
         min_size=min_size,
         max_size=max_size,
         open=False,
-        kwargs={"row_factory": dict_row, "autocommit": True},
+        kwargs={"row_factory": dict_row, "autocommit": True, "prepare_threshold": None},
     )
