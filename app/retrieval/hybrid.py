@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Awaitable, Callable, TypeVar
+from typing import Awaitable, Callable, Mapping, TypeVar
 
 from psycopg import sql
 from psycopg_pool import AsyncConnectionPool
@@ -73,7 +73,16 @@ async def hybrid_search(
     pool: AsyncConnectionPool,
     query: SearchQuery,
     mode: SearchMode = "hybrid",
+    weights: Mapping[str, float] | None = None,
+    dense_text: str | None = None,
 ) -> SearchResult:
+    """
+    `weights` overrides the configured RRF weights for this call ("bm25",
+    "dense"); query understanding uses it to weight each query by its intent.
+    `dense_text` is embedded instead of query.text for vector search: query
+    understanding sends its keyword rewrite to BM25 and the shopper's own
+    sentence to the embedding, which reads natural language better.
+    """
     s = get_settings()
     k = max(s.retrieval_candidates, query.limit)
     timings: dict[str, float] = {}
@@ -90,7 +99,7 @@ async def hybrid_search(
         return hits, plan
 
     async def run_dense() -> list[Hit]:
-        vec = await _timed(timings, "embed_query", lambda: llm.embed_query(query.text))
+        vec = await _timed(timings, "embed_query", lambda: llm.embed_query(dense_text or query.text))
         async with pool.connection() as conn:
             return await _timed(timings, "dense_search", lambda: search_dense(conn, vec, query.filters, k))
 
@@ -124,15 +133,16 @@ async def hybrid_search(
 
     # Rank the candidates
     if route == "hybrid":
-        w_bm25 = s.rrf_weight_bm25
+        base = {"bm25": s.rrf_weight_bm25, "dense": s.rrf_weight_dense, **(weights or {})}
+        w_bm25 = base["bm25"]
         if s.bm25_coverage_weighting and plan is not None:
             w_bm25 *= plan.coverage
-        weights = {"bm25": w_bm25, "dense": s.rrf_weight_dense}
-        debug["weights"] = {m: round(w, 3) for m, w in weights.items()}
+        fusion_weights = {"bm25": w_bm25, "dense": base["dense"]}
+        debug["weights"] = {m: round(w, 3) for m, w in fusion_weights.items()}
         fused = reciprocal_rank_fusion(
             {"bm25": [h.product_id for h in sparse_hits], "dense": [h.product_id for h in dense_hits]},
             k=s.rrf_k,
-            weights=weights,
+            weights=fusion_weights,
             limit=query.limit,
         )
         ranked = [(f.product_id, f.score) for f in fused]

@@ -11,7 +11,7 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "psycopg[binary,pool]>=3.1",
     "python-dotenv>=1.0",
-    "openai>=1.40",
+    "openai>=1.66",          # Responses API with structured outputs (responses.parse)
 ]
 
 [project.optional-dependencies]

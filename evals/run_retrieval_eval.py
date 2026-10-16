@@ -25,21 +25,25 @@ from __future__ import annotations
 import argparse
 import asyncio
 import csv
+import json
 import statistics
 import sys
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
 from app.core import llm
 from app.core.config import get_settings
 from app.core.db import create_pool
+from app.query.search import search as qu_search
+from app.query.understanding import PROMPT_VERSION
 from app.retrieval.hybrid import hybrid_search
 from evals.dataset import DEFAULT_PATH, EvalCase, load_cases, slugify
 from evals.metrics import mrr_at_k, ndcg_at_k, percentile, recall_at_k
 
-MODES = ("bm25", "dense", "hybrid")
+# "hybrid+qu" = query understanding (one LLM call) before hybrid search; see app/query.
+MODES = ("bm25", "dense", "hybrid", "hybrid+qu")
 RESULTS_DIR = Path(__file__).parent / "results"
 
 
@@ -52,6 +56,7 @@ class Row:
     ndcg: float
     latency_ms: float
     ranked: list[int]
+    debug: dict = field(default_factory=dict)
 
 
 async def evaluate(cases: list[EvalCase], k: int, modes: tuple[str, ...] = MODES) -> list[Row]:
@@ -62,7 +67,11 @@ async def evaluate(cases: list[EvalCase], k: int, modes: tuple[str, ...] = MODES
             for mode in modes:
                 if mode != "bm25":
                     llm.clear_query_cache()      # honest latency: every mode embeds the query itself
-                res = await hybrid_search(pool, query, mode)
+                if mode == "hybrid+qu":
+                    # The case's filters play the part of filters the shopper set in the UI.
+                    res = await qu_search(pool, case.query, case.filters, limit=k)
+                else:
+                    res = await hybrid_search(pool, query, mode)
                 ranked = [r.product.product_id for r in res.results]
                 rows.append(Row(
                     case, mode,
@@ -71,6 +80,9 @@ async def evaluate(cases: list[EvalCase], k: int, modes: tuple[str, ...] = MODES
                     ndcg_at_k(ranked, case.relevant, k),
                     res.timings_ms.get("total", 0.0),
                     ranked,
+                    {**res.debug, "qu": {**res.debug.get("qu", {}),
+                                         "understand_ms": res.timings_ms.get("understand")}}
+                    if mode == "hybrid+qu" else res.debug,
                 ))
             print(f"\r  {i}/{len(cases)} queries", end="", file=sys.stderr, flush=True)
     print(file=sys.stderr)
@@ -86,7 +98,41 @@ def settings_line() -> str:
     on = lambda b: "on" if b else "off"
     return (f"RRF weights bm25 {s.rrf_weight_bm25:g} / dense {s.rrf_weight_dense:g}; "
             f"code routing {on(s.route_codes_to_bm25)}; fuzzy fallback {on(s.bm25_fuzzy_fallback)}; "
-            f"coverage weighting {on(s.bm25_coverage_weighting)}.")
+            f"coverage weighting {on(s.bm25_coverage_weighting)}. "
+            f"Query understanding: {s.query_model}, prompt {PROMPT_VERSION}, dense weight "
+            f"specific {s.qu_dense_weight_specific:g} / explore {s.qu_dense_weight_explore:g}; "
+            f"subcategory filters {on(s.qu_subcategory_filters)}; dense embeds the {s.qu_dense_text} text"
+            + (f"; reasoning effort {s.query_reasoning_effort}" if s.query_reasoning_effort else "") + ".")
+
+
+def qu_summary(rows: list[Row]) -> list[str]:
+    """How the LLM step behaved: fallbacks, relaxed filters, latency and tokens."""
+    qrows = [r for r in rows if r.mode == "hybrid+qu"]
+    if not qrows:
+        return []
+    qus = [r.debug.get("qu", {}) for r in qrows]
+    used = [q for q in qus if q.get("used")]
+    understand_ms = [r_ms for r_ms in (q.get("understand_ms") for q in qus) if r_ms]
+    tokens_in = sum(q.get("tokens", {}).get("input", 0) for q in used)
+    tokens_out = sum(q.get("tokens", {}).get("output", 0) for q in used)
+    errors = [q.get("error", "") for q in qus if q.get("reason") == "error"]
+    lines = [
+        "", "## Query understanding", "",
+        f"- LLM used on {len(used)}/{len(qus)} queries "
+        f"(skipped for style codes: {sum(q.get('reason') == 'style code' for q in qus)}; "
+        f"failed and fell back: {len(errors)}).",
+        f"- Out of scope: {sum(bool(q.get('out_of_scope')) for q in used)}; "
+        f"inferred filters relaxed: {sum('relaxed' in q for q in used)}; "
+        f"catalog values dropped: {sum(bool(q.get('dropped')) for q in used)}.",
+        f"- Tokens: {tokens_in:,} in / {tokens_out:,} out in total "
+        f"({tokens_in // max(len(used), 1):,} / {tokens_out // max(len(used), 1):,} per query).",
+    ]
+    if understand_ms:
+        lines.append(f"- LLM latency: p50 {percentile(understand_ms, 50):.0f} ms, "
+                     f"p95 {percentile(understand_ms, 95):.0f} ms.")
+    if errors:
+        lines.append(f"- First error: `{errors[0]}`")
+    return lines
 
 
 def summarize(rows: list[Row], k: int, modes: tuple[str, ...], label: str = "") -> str:
@@ -128,6 +174,8 @@ def summarize(rows: list[Row], k: int, modes: tuple[str, ...], label: str = "") 
                 cells[cells.index(top)] = f"**{top}**"
             out.append(f"| {tag} | {n} | " + " | ".join(cells) + " |")
 
+    out += qu_summary(rows)
+
     out += ["", f"## Weakest queries per mode (lowest nDCG@{k})", ""]
     for mode in modes:
         worst = sorted(by_mode[mode], key=lambda r: (r.ndcg, r.case.id))[:5]
@@ -140,12 +188,13 @@ def write_csv(rows: list[Row], path: Path) -> None:
     with path.open("w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["case_id", "query", "tags", "mode", "recall", "mrr", "ndcg", "latency_ms",
-                    "relevant_found", "relevant_total", "top_ids"])
+                    "relevant_found", "relevant_total", "top_ids", "debug"])
         for r in rows:
             rel = {p for p, g in r.case.relevant.items() if g > 0}
             w.writerow([r.case.id, r.case.query, " ".join(r.case.tags), r.mode,
                         f"{r.recall:.4f}", f"{r.mrr:.4f}", f"{r.ndcg:.4f}", f"{r.latency_ms:.0f}",
-                        len(rel & set(r.ranked)), len(rel), " ".join(map(str, r.ranked))])
+                        len(rel & set(r.ranked)), len(rel), " ".join(map(str, r.ranked)),
+                        json.dumps(r.debug, default=str)])
 
 
 async def main() -> None:
