@@ -44,17 +44,14 @@ class ComparisonDraft(BaseModel):
 class AnswerDraft(BaseModel):
     kind: AnswerKind = Field(
         description="recommend: products that fit. compare: the shopper asked to compare products. "
-        "no_match: nothing truly fits; picks are the closest alternatives that meet the same need, "
-        "or none. clarify: the request is too vague to choose; ask one question."
+        "no_match: nothing truly fits; picks are the closest alternatives. clarify: the request is "
+        "too vague to choose; ask one question."
     )
     message: str = Field(
-        description="2-5 sentences for the shopper. Refer by name only to products in picks. Never "
-        "state prices, discounts, stock or sizes; the page shows those next to each product."
+        description="2-5 sentences for the shopper. Refer to products by name. Never state prices, "
+        "discounts, stock or sizes; the page shows those next to each product."
     )
-    picks: list[Pick] = Field(
-        description="Best fit for the shopper's main requirement first. At most 5. Empty for clarify, "
-        "and for no_match when no product meets the same need."
-    )
+    picks: list[Pick] = Field(description="Best first. At most 5. Empty only for clarify.")
     comparison: Optional[ComparisonDraft] = Field(description="Only when kind is compare; otherwise null.")
     follow_up: Optional[str] = Field(description="One short question the shopper might ask next, or null.")
 
@@ -101,4 +98,3 @@ class Turn(BaseModel):
 
     role: Literal["user", "assistant"]
     content: str = Field(max_length=4000)
-    
