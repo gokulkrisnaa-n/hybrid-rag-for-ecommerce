@@ -30,3 +30,4 @@
 {"answer_hash": "5877aa97c056", "case_id": "followup-which-warmer", "label": "pass", "note": "honest no insulation weights listed; Cedre reasonable (down + fleece)", "answers_file": "gen_20261016-141220.jsonl", "labeled_at": "2026-10-29T14:05:21"}
 {"answer_hash": "85de8b396753", "case_id": "placeholder-price-supernova", "label": "pass", "note": "exact match; ignored placeholder price", "answers_file": "gen_20261016-141220.jsonl", "labeled_at": "2026-10-29T14:05:43"}
 {"answer_hash": "90690eabf48a", "case_id": "vague-something-nice", "label": "pass", "note": "clarify is right; examples (\"jewelry or a gift\") skewed by search results, miss clothing/sneakers", "answers_file": "gen_20261016-141220.jsonl", "labeled_at": "2026-10-29T14:06:28"}
+{"answer_hash": "d75c91f6e190", "case_id": "rec-rain-jacket", "label": "fail", "note": "unsupported comparison \"lighter\"", "answers_file": "gen_20261016-141220.jsonl", "labeled_at": "2026-10-29T14:51:08"}
