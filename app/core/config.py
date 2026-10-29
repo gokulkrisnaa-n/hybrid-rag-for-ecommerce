@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     query_model: str = "gpt-6-luna"          # message -> structured search query
     generation_model: str = "gpt-6-luna"     # answers and comparisons
     judge_model: str = "gpt-6.1-sol"         # offline evals only
+    # The judge runs offline through the Batch API, so latency doesn't matter: give it room
+    # to check each claim against the product blocks. Empty value to omit it.
+    judge_reasoning_effort: Optional[str] = "medium"
 
     # --- Retrieval ----------------------------------------------------------
     retrieval_candidates: int = 50     # results taken from EACH method before fusion
