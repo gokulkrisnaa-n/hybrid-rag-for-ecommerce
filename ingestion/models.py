@@ -73,6 +73,11 @@ class Variant(BaseModel):
         # That is not a discount, so treat it as absent.
         if self.compare_at_price is not None and self.compare_at_price <= self.price:
             self.compare_at_price = None
+        # Placeholder price: for some archived Kith collabs products.json sends exactly a
+        # tenth of the real price ($13 "was" $130) while the product page shows $130.
+        # Keep the real price and drop the fake 90% discount.
+        if self.compare_at_price is not None and self.price > 0 and self.price * 10 == self.compare_at_price:
+            self.price, self.compare_at_price = self.compare_at_price, None
         return self
 
     @computed_field
