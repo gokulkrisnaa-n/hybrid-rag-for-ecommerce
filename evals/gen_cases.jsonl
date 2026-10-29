@@ -21,7 +21,7 @@
 {"id": "compare-nuptse-himalayan", "message": "nuptse vs himalayan, which is warmer?", "tags": ["compare"], "expect": {"kind": ["compare", "no_match"], "min_picks": 1}}
 {"id": "compare-chuck-70-all-star", "message": "what's the difference between the chuck 70 and the chuck taylor all star?", "tags": ["compare"], "expect": {"kind": ["compare"], "min_picks": 2}}
 {"id": "nomatch-tuxedo", "message": "black tuxedo for a wedding", "tags": ["no-match"], "expect": {"kind": ["no_match"], "max_picks": 3, "mention": ["tuxedo"]}}
-{"id": "nomatch-laptop", "message": "a laptop for college", "tags": ["no-match"], "expect": {"kind": ["no_match", "out_of_scope", "clarify"], "max_picks": 3}}
+{"id": "nomatch-laptop", "message": "a laptop for college", "tags": ["no-match"], "expect": {"kind": ["no_match", "out_of_scope", "clarify"], "max_picks": 0}}
 {"id": "nomatch-womens-parka", "message": "women's winter parka", "filters": {"genders": ["womens", "unisex"], "max_price": 300}, "tags": ["no-match"], "expect": {"kind": ["no_match", "recommend"]}}
 {"id": "exists-hiking-boots", "message": "waterproof hiking boots", "tags": ["explore"], "relevance_case": "nomatch-hiking-boots", "expect": {"kind": ["recommend"], "min_picks": 1}}
 {"id": "oos-return-policy", "message": "what's your return policy?", "tags": ["out-of-scope"], "expect": {"kind": ["out_of_scope"], "source": "template", "max_picks": 0}}
