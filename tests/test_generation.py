@@ -13,8 +13,8 @@ import pytest
 
 from app.chat import service
 from app.generation import generate
-from app.generation.context import ProductDetails, build_context, product_block
-from app.generation.generate import has_price_text, validate
+from app.generation.context import ProductDetails, brand_line, build_context, product_block
+from app.generation.generate import _sizes_text, has_price_text, has_stock_text, validate
 from app.generation.prompt import build_input
 from app.generation.schemas import AnswerDraft, ComparisonDraft, ComparisonRowDraft, Pick, Turn
 from app.schemas.product_models import ProductCard, RetrievedProduct, SearchResult
@@ -119,6 +119,43 @@ def test_price_in_text_is_flagged():
     assert not has_price_text("the 990v6 in size 10") and not has_price_text("Samba OG")
     a = validate(draft(message="This one is $80 now."), CARDS, 5)
     assert any("price" in w for w in a.warnings)
+
+
+@pytest.mark.parametrize("text", [
+    "their listed sizes start at 9-12 months", "sizes 8 to 12", "available in size 10", "it's in stock",
+    "the black pair is sold out", "made for 3–6 months",
+])
+def test_sizes_and_stock_in_text_are_flagged(text):
+    assert has_stock_text(text)
+
+
+@pytest.mark.parametrize("text", ["an oversized fit", "fits true to size", "the 990v6", "Samba OG", "a sized-up look"])
+def test_size_words_without_values_are_fine(text):
+    assert not has_stock_text(text)
+
+
+def test_stock_warning_on_answer():
+    a = validate(draft(message="Their sizes start at 9-12 months."), CARDS, 5)
+    assert "size or stock written in the text" in a.warnings
+
+
+def test_long_size_lists_say_they_are_cut():
+    sizes = [str(x / 2) for x in range(7, 30)]          # 3.5 .. 14.5: 23 sizes
+    text = _sizes_text(card(1, sizes_available=sizes))
+    assert text.startswith("3.5, 4.0") and text.endswith("… (+11 more)")
+    assert _sizes_text(card(2, sizes_available=["9", "10"])) == "9, 10"
+    assert _sizes_text(card(3, in_stock=False, sizes_available=[])) == "Sold out"
+
+
+@pytest.mark.parametrize("brand, collab, expected", [
+    ("adidas", "CLOT", "adidas x CLOT"),
+    ("The North Face x SKIMS", "SKIMS", "The North Face x SKIMS"),     # vendor already names the partner
+    ("Kith", "ASICS", "Kith x ASICS"),
+    ("Nike", None, "Nike"),
+    (None, "New Era", "New Era"),
+])
+def test_brand_line_does_not_repeat_the_partner(brand, collab, expected):
+    assert brand_line(brand, collab) == expected
 
 
 def test_clarify_and_no_match():
