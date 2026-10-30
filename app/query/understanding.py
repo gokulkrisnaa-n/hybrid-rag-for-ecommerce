@@ -19,6 +19,7 @@ import time
 from collections import OrderedDict
 from dataclasses import dataclass
 
+from app.core import tracing
 from app.core.config import get_settings
 from app.core.llm import call_llm, get_openai_client
 from app.query.plan import QueryPlan
@@ -118,10 +119,31 @@ async def understand(message: str, vocab: Vocabulary, history: list[str] | None 
     """
     s = get_settings()
     key = (s.query_model, PROMPT_VERSION, vocab.version, message, tuple(history or ()))
+    # What the model reads, as role-labelled messages (the earlier turns are the shopper's own).
+    trace_input = [{"role": "user", "content": tracing.mask_pii(h)} for h in (history or [])[-5:]]
+    trace_input.append({"role": "user", "content": tracing.mask_pii(message)})
     if key in _cache:
         _cache.move_to_end(key)
-        return Understanding(plan=_cache[key].model_copy(deep=True), latency_ms=0.0, cached=True)
+        plan = _cache[key].model_copy(deep=True)
+        with tracing.observe("understand-query", input=trace_input,
+                             metadata={"cached": True, "prompt": PROMPT_VERSION}) as obs:
+            obs.update(output=plan.model_dump(mode="json"))
+        return Understanding(plan=plan, latency_ms=0.0, cached=True)
 
+    with tracing.observe("understand-query", as_type="generation", model=s.query_model, input=trace_input,
+                         metadata={"cached": False, "prompt": PROMPT_VERSION,
+                                   "reasoning_effort": s.query_reasoning_effort}) as gen:
+        result = await _call_model(message, history, vocab)
+        gen.update(output=result.plan.model_dump(mode="json"),
+                   usage_details={"input": result.input_tokens, "output": result.output_tokens})
+    _cache[key] = result.plan.model_copy(deep=True)
+    if len(_cache) > _CACHE_SIZE:
+        _cache.popitem(last=False)
+    return result
+
+
+async def _call_model(message: str, history: list[str] | None, vocab: Vocabulary) -> Understanding:
+    s = get_settings()
     client = get_openai_client().with_options(timeout=s.query_timeout_seconds, max_retries=0)
     start = time.perf_counter()
     response = await call_llm(
@@ -141,10 +163,6 @@ async def understand(message: str, vocab: Vocabulary, history: list[str] | None 
     plan = response.output_parsed
     if plan is None:
         raise ValueError("model returned no parsable plan (refusal or incomplete output)")
-
-    _cache[key] = plan.model_copy(deep=True)
-    if len(_cache) > _CACHE_SIZE:
-        _cache.popitem(last=False)
     usage = response.usage
     return Understanding(
         plan=plan,
