@@ -34,4 +34,4 @@
 {"id": "placeholder-price-supernova", "message": "kith for adidas supernova", "tags": ["data-quality"], "expect": {"kind": ["recommend", "no_match"]}}
 {"id": "vague-hi", "message": "hi", "tags": ["clarify"], "expect": {"kind": ["clarify", "out_of_scope"], "max_picks": 0}}
 {"id": "vague-something-nice", "message": "something nice", "tags": ["clarify"], "expect": {"kind": ["clarify", "recommend"]}}
-{"id": "followup-other-brands", "message": "show me brands other than On Running", "history": [{"role": "user", "content": "show me some running shoes"}, {"role": "assistant", "content": "Here are some running shoes."}], "tags": ["follow-up", "negation"], "expect": {"kind": ["recommend"], "min_picks": 1, "exclude_brands": ["on running"]}}
+{"id": "followup-other-brands", "message": "show me brands other than On Running", "history": [{"role": "user", "content": "show me some running shoes"}, {"role": "assistant", "content": "Here are some running shoes."}], "tags": ["follow-up", "negation"], "expect": {"kind": ["recommend", "no_match"], "min_picks": 1, "exclude_brands": ["on running"]}}
