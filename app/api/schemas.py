@@ -18,6 +18,7 @@ from app.schemas.query_models import SearchFilters, SearchMode
 
 MAX_MESSAGE_CHARS = 500
 MAX_HISTORY_TURNS = 20      # accepted; the chat service uses only the last chat_history_turns
+ID_PATTERN = r"^[A-Za-z0-9._-]{1,64}$"     # request and session ids: safe in logs and trace attributes
 
 
 def _clean_text(v: str) -> str:
@@ -72,6 +73,10 @@ class ChatRequest(BaseModel):
         description="Earlier turns, oldest first. The API keeps no conversation state.",
     )
     filters: SearchFilters = Field(default_factory=SearchFilters)
+    session_id: Optional[str] = Field(
+        default=None, pattern=ID_PATTERN,
+        description="Any id the client keeps for one conversation; groups its turns in the traces.",
+    )
     debug: bool = Field(default=False, description="Include the query plan, timings and token counts.")
 
     @field_validator("message")
@@ -83,6 +88,19 @@ class ChatRequest(BaseModel):
 class ChatResponse(ChatAnswer):
     request_id: str
     debug: Optional[dict[str, Any]] = None
+
+
+class FeedbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str = Field(pattern=ID_PATTERN, description="The request_id of the chat answer being rated.")
+    rating: Literal[1, -1] = Field(description="1 = thumbs up, -1 = thumbs down.")
+    comment: Optional[str] = Field(default=None, max_length=500)
+
+
+class FeedbackResponse(BaseModel):
+    request_id: str
+    status: Literal["recorded"] = "recorded"
 
 
 class ErrorBody(BaseModel):
