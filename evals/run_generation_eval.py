@@ -14,6 +14,7 @@ exactly, with no judge model:
     no_stock_text   no sizes or stock ("sizes start at 9-12 months", "in stock") in the text
     compare_table   a "compare" answer has a table with at least two products
     filters         every pick satisfies the case's filters (price, gender, sale, in stock)
+    excluded_brands no pick is by (or with) a brand the shopper ruled out ("other than On Running")
     mention         required words appear in the message or reasons
     not_mention     forbidden words don't
 
@@ -56,8 +57,8 @@ from evals.metrics import percentile
 CASES_PATH = Path(__file__).parent / "gen_cases.jsonl"
 RESULTS_DIR = Path(__file__).parent / "results"
 CHECKS = ("kind", "no_fallback", "picks", "valid_ids", "no_price_text", "no_stock_text", "compare_table",
-          "filters", "mention", "not_mention")
-EXPECT_KEYS = {"kind", "source", "min_picks", "max_picks", "mention", "not_mention"}
+          "filters", "excluded_brands", "mention", "not_mention")
+EXPECT_KEYS = {"kind", "source", "min_picks", "max_picks", "mention", "not_mention", "exclude_brands"}
 
 
 def load_gen_cases(path: Path = CASES_PATH) -> list[dict]:
@@ -121,6 +122,11 @@ def check_answer(case: dict, a: ChatAnswer) -> dict[str, tuple[bool, str]]:
         out["compare_table"] = (rows >= 2, f"{rows} rows")
     bad = [f"{p.product.product_id}: {v}" for p in a.products if (v := _pick_violates(p.product, f))]
     out["filters"] = (not bad, "; ".join(bad) or "ok")
+    if exp.get("exclude_brands"):
+        banned = {b.lower() for b in exp["exclude_brands"]}
+        hits = [f"{p.product.product_id} ({p.product.brand})" for p in a.products
+                if {(p.product.brand or "").lower(), (p.product.collaborator or "").lower()} & banned]
+        out["excluded_brands"] = (not hits, f"picked excluded: {hits}" if hits else "ok")
     if exp.get("mention"):
         missing = [w for w in exp["mention"] if w.lower() not in text]
         out["mention"] = (not missing, f"missing {missing}" if missing else "ok")
