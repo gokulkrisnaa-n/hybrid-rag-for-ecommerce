@@ -14,6 +14,7 @@ dependencies = [
     "openai>=1.66",          # Responses API with structured outputs (responses.parse)
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
+    "langfuse>=5.1",          # tracing (optional at runtime: off without keys)
 ]
 
 [project.optional-dependencies]
