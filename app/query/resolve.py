@@ -9,6 +9,9 @@ Rules (each is visible in the debug info):
   4. Intent picks the dense weight: lower for named products, higher for needs.
   5. Inferred subcategories are not applied unless qu_subcategory_filters is on
      (a third of products have none, so the filter hides good results).
+  6. Excluded brands ("other than On Running") are a hard constraint: never also
+     a wanted brand, and kept when the search is relaxed. A brand the shopper
+     explicitly filtered for is not excluded.
 """
 
 from __future__ import annotations
@@ -26,7 +29,7 @@ from app.schemas.query_models import SearchFilters
 class ResolvedSearch:
     text: str
     filters: SearchFilters                       # explicit + inferred
-    explicit: SearchFilters                      # what the shopper set; the relaxation fallback uses this
+    explicit: SearchFilters                      # what the shopper set
     weights: dict[str, float]
     inferred: dict = field(default_factory=dict)  # filter fields that came from the plan
     dropped: dict[str, list[str]] = field(default_factory=dict)
@@ -34,6 +37,12 @@ class ResolvedSearch:
     @property
     def has_inferred_filters(self) -> bool:
         return bool(self.inferred)
+
+    @property
+    def relaxed_filters(self) -> SearchFilters:
+        """For the fallback when inferred filters leave too few results: the shopper's own
+        filters plus what they ruled out. Relaxing must never bring back an excluded brand."""
+        return self.explicit.model_copy(update={"exclude_brands": self.filters.exclude_brands})
 
 
 def _price(v: float | None) -> Decimal | None:
@@ -44,6 +53,12 @@ def resolve(plan: QueryPlan, explicit: SearchFilters, vocab: Vocabulary, raw_tex
     s = get_settings()
     cats, subs, brands, dropped = vocab.clean(categories=plan.categories,
                                               subcategories=plan.subcategories, brands=plan.brands)
+    _, _, excluded, dropped_ex = vocab.clean(categories=[], subcategories=[], brands=plan.exclude_brands)
+    if dropped_ex.get("brands"):
+        dropped["exclude_brands"] = dropped_ex["brands"]
+    wanted = {b.lower() for b in explicit.brands}
+    excluded = [b for b in excluded if b not in wanted]          # an explicit filter wins
+    brands = [b for b in brands if b not in excluded]            # never "only X" and "not X" at once
 
     inferred: dict = {}
     if not explicit.categories and cats:
@@ -54,6 +69,9 @@ def resolve(plan: QueryPlan, explicit: SearchFilters, vocab: Vocabulary, raw_tex
         inferred["brands"] = brands
     if not explicit.genders and plan.genders:
         inferred["genders"] = list(dict.fromkeys(plan.genders))
+    new_excluded = [b for b in excluded if b not in {e.lower() for e in explicit.exclude_brands}]
+    if new_excluded:
+        inferred["exclude_brands"] = list(explicit.exclude_brands) + new_excluded
 
     lo, hi = _price(plan.min_price), _price(plan.max_price)
     if lo is not None and hi is not None and lo > hi:
