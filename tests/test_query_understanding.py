@@ -43,7 +43,7 @@ VOCAB = Vocabulary(
 
 def plan(**kw) -> QueryPlan:
     base = dict(search_text="hoodie", standalone_query="a hoodie", intent="explore", audience="adult", categories=[], subcategories=[],
-                genders=[], brands=[], min_price=None, max_price=None, on_sale_only=False,
+                genders=[], brands=[], exclude_brands=[], min_price=None, max_price=None, on_sale_only=False,
                 compare_items=[], out_of_scope=False)
     return QueryPlan(**{**base, **kw})
 
@@ -123,6 +123,43 @@ def test_empty_search_text_falls_back_to_raw_message():
 
 def test_on_sale_inferred():
     assert resolve(plan(on_sale_only=True), SearchFilters(), VOCAB, "q").filters.on_sale_only is True
+
+
+def test_excluded_brands_are_inferred_and_never_also_wanted():
+    # "running shoes other than adidas": the model may also list the brand as mentioned
+    r = resolve(plan(categories=["footwear"], brands=["adidas"], exclude_brands=["Adidas", "Nike"]),
+                SearchFilters(), VOCAB, "q")
+    assert r.filters.exclude_brands == ["adidas"] and r.filters.brands == []
+    assert r.inferred["exclude_brands"] == ["adidas"] and "brands" not in r.inferred
+    assert r.dropped["exclude_brands"] == ["nike"]                  # not in the catalog
+
+
+def test_explicit_brand_filter_beats_an_inferred_exclusion():
+    r = resolve(plan(exclude_brands=["adidas"]), SearchFilters(brands=["adidas"]), VOCAB, "q")
+    assert r.filters.brands == ["adidas"] and r.filters.exclude_brands == []
+
+
+def test_inferred_exclusion_adds_to_explicit_exclusions():
+    r = resolve(plan(exclude_brands=["clot"]), SearchFilters(exclude_brands=["Kith"]), VOCAB, "q")
+    assert r.filters.exclude_brands == ["Kith", "clot"]
+    r = resolve(plan(exclude_brands=["kith"]), SearchFilters(exclude_brands=["Kith"]), VOCAB, "q")
+    assert "exclude_brands" not in r.inferred                       # already excluded
+
+
+def test_relaxed_filters_keep_excluded_brands():
+    r = resolve(plan(categories=["eyewear"], exclude_brands=["adidas"]),
+                SearchFilters(max_price=Decimal("50")), VOCAB, "q")
+    relaxed = r.relaxed_filters
+    assert relaxed.categories == [] and relaxed.max_price == Decimal("50")
+    assert relaxed.exclude_brands == ["adidas"]
+
+
+def test_exclude_brands_sql_matches_brand_or_collaborator_and_keeps_unbranded():
+    from tests.test_retrieval_rules import render
+    w = build_where(SearchFilters(exclude_brands=["On Running", "nike"]))
+    assert ("NOT (lower(coalesce(brand, '')) = ANY(%(f_exclude_brands)s) "
+            "OR lower(coalesce(collaborator, '')) = ANY(%(f_exclude_brands)s))") in render(w.clause)
+    assert w.params["f_exclude_brands"] == ["on running", "nike"]
 
 
 def test_exclude_genders_sql_keeps_unlabeled_products():
@@ -307,6 +344,16 @@ async def test_too_few_results_relaxes_inferred_filters(pipeline):
     assert len(res.results) == 10 and "relaxed" in res.debug["qu"]
 
 
+async def test_relaxation_never_brings_back_an_excluded_brand(pipeline):
+    pipeline["plan"] = plan(categories=["eyewear"], exclude_brands=["adidas"])
+    pipeline["n_results"] = [2, 10]
+    res = await search_mod.search(None, "sunglasses other than adidas")
+    first, second = pipeline["searches"]
+    assert first[0].filters.exclude_brands == ["adidas"] and first[0].filters.categories == ["eyewear"]
+    assert second[0].filters.exclude_brands == ["adidas"] and second[0].filters.categories == []
+    assert "relaxed" in res.debug["qu"]
+
+
 async def test_compare_items_are_searched_separately_and_interleaved(pipeline, monkeypatch):
     from tests.test_retrieval_rules import card
     from app.schemas.product_models import RetrievedProduct
@@ -364,5 +411,9 @@ def test_qu_eval_check():
     assert not res["intent"][0] and not res["search_text_contains"][0]
     assert check({"compare_items_count": 0}, got)["compare_items_count"][0]
     assert not check({"compare_items_count": 2}, {**got, "compare_items": ["a"]})["compare_items_count"][0]
+    neg = {**got, "search_text": "running shoes", "brands": [], "exclude_brands": ["on running"]}
+    res = check({"exclude_brands": ["On Running"], "brands": [], "search_text_excludes": ["on running"]}, neg)
+    assert res["exclude_brands"][0] and res["brands"][0] and res["search_text_excludes"][0]
+    assert not check({"search_text_excludes": ["running"]}, neg)["search_text_excludes"][0]
     with pytest.raises(ValueError):
         check({"colour": "black"}, got)
