@@ -29,7 +29,8 @@ from psycopg_pool import PoolTimeout
 from app.api.errors import install_error_handlers
 from app.api.middleware import RequestContextMiddleware
 from app.api.ratelimit import SlidingWindowLimiter
-from app.api.routes import chat, health, search
+from app.api.routes import chat, feedback, health, search
+from app.core import tracing
 from app.core.config import get_settings
 from app.core.db import create_pool
 from app.core.llm import get_openai_client
@@ -56,13 +57,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         vocab = await load_vocabulary(pool)
         get_openai_client()
-        log.info("ready: pool %d-%d, vocabulary %d categories / %d brands, models %s / %s",
+        log.info("ready: pool %d-%d, vocabulary %d categories / %d brands, models %s / %s, tracing %s",
                  s.api_db_pool_min_size, s.api_db_pool_max_size, len(vocab.categories), len(vocab.brands),
-                 s.query_model, s.generation_model)
+                 s.query_model, s.generation_model, "on" if tracing.tracing_active() else "off")
         yield
     finally:
         await pool.close()
-        log.info("shut down: pool closed")
+        tracing.flush()            # send traces still buffered before the process exits
+        log.info("shut down: pool closed, traces flushed")
 
 
 def _configure_logging() -> None:
@@ -100,4 +102,5 @@ def create_app(*, use_lifespan: bool = True) -> FastAPI:
     app.include_router(health.router)
     app.include_router(search.router)
     app.include_router(chat.router)
+    app.include_router(feedback.router)
     return app
