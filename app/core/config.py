@@ -123,6 +123,17 @@ class Settings(BaseSettings):
     api_db_pool_max_size: int = 10
     api_db_connect_timeout_seconds: float = 10.0     # at startup; the API won't start without a database
 
+    # --- Tracing (app/core/tracing.py, Langfuse) ---------------------------------------
+    # On only when both keys are set: without them every trace call is a no-op.
+    tracing_enabled: bool = True
+    langfuse_public_key: Optional[str] = None
+    langfuse_secret_key: Optional[SecretStr] = None
+    langfuse_base_url: str = "https://cloud.langfuse.com"     # US region: https://us.cloud.langfuse.com
+    tracing_environment: str = "development"                  # filters traces in the UI: development, eval, production
+    tracing_sample_rate: float = Field(default=1.0, ge=0.0, le=1.0)
+    # Send the full product blocks the answer model saw. Off: traces carry ids and titles only.
+    tracing_capture_context: bool = False
+
 
 @lru_cache
 def get_settings() -> Settings:
