@@ -43,7 +43,14 @@ class QueryPlan(BaseModel):
         description="Only if the message says or clearly implies it. Women -> ['womens','unisex']; "
         "men -> ['mens','unisex']. Otherwise empty. Children are covered by audience, not here."
     )
-    brands: list[str] = Field(description="Brand or collaborator names mentioned in the message.")
+    brands: list[str] = Field(
+        description="Brands or collaborators the shopper WANTS. Not brands they rule out: "
+        "'other than On Running' puts On Running in exclude_brands, never here."
+    )
+    exclude_brands: list[str] = Field(
+        description="Brands or collaborators the shopper rules out ('other than X', 'not X', "
+        "'except X', 'no X', 'anything but X'). Empty if none."
+    )
     min_price: Optional[float] = Field(description="Lower price bound in USD if stated, else null.")
     max_price: Optional[float] = Field(description="Upper price bound in USD if stated, else null.")
     on_sale_only: bool = Field(description="True only if the shopper asks for sale or discounted items.")
