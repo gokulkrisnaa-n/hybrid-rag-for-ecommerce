@@ -14,13 +14,12 @@ message, never an invented product.
 
 from __future__ import annotations
 
-import asyncio
 import re
 import time
 from dataclasses import dataclass
 
 from app.core.config import get_settings
-from app.core.llm import get_openai_client
+from app.core.llm import call_llm, get_openai_client
 from app.generation.prompt import INSTRUCTIONS, build_input
 from app.generation.schemas import (
     AnswerDraft,
@@ -55,11 +54,10 @@ async def draft_answer(message: str, history: list[tuple[str, str]], context: st
                        applied_filters: dict) -> Draft:
     """Raises on timeout, API error or unparsable output; the caller falls back to a template."""
     s = get_settings()
-    client = get_openai_client().with_options(timeout=s.generation_timeout_seconds,
-                                              max_retries=s.generation_max_retries)
+    client = get_openai_client().with_options(timeout=s.generation_timeout_seconds, max_retries=0)
     start = time.perf_counter()
-    response = await asyncio.wait_for(
-        client.responses.parse(
+    response = await call_llm(
+        lambda: client.responses.parse(
             **({"reasoning": {"effort": s.generation_reasoning_effort}} if s.generation_reasoning_effort else {}),
             model=s.generation_model,
             instructions=INSTRUCTIONS,
@@ -67,7 +65,8 @@ async def draft_answer(message: str, history: list[tuple[str, str]], context: st
             text_format=AnswerDraft,
             store=False,
         ),
-        timeout=s.generation_timeout_seconds + 1,
+        budget_seconds=s.generation_timeout_seconds,
+        attempts=1 + s.generation_max_retries,
     )
     latency = (time.perf_counter() - start) * 1000
     if response.output_parsed is None:
