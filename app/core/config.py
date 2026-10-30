@@ -28,7 +28,16 @@ class Settings(BaseSettings):
     # --- OpenAI -------------------------------------------------------------
     openai_api_key: SecretStr
     openai_timeout_seconds: float = 30.0
-    openai_max_retries: int = 5            # SDK retries 429 / 5xx / connection errors with backoff
+    # Retries for bulk calls (embedder, judge sync) and for the SDK's own file / batch calls.
+    # Live calls use query_max_retries / generation_max_retries instead.
+    openai_max_retries: int = 5
+    # Backoff for app.core.retry: wait random(0, min(cap, base * 2^n)) unless the
+    # server sends Retry-After.
+    llm_retry_base_seconds: float = 0.5
+    llm_retry_cap_seconds: float = 8.0
+    # Model calls in flight at once from one process (query understanding + generation).
+    # A spike queues here (inside each request's time budget) rather than bursting into 429s.
+    llm_max_concurrency: int = 8
 
     # Embeddings. The dimension count must match the vector(N) column in
     # db/schema.sql; the embedder checks this before doing any work.
@@ -100,6 +109,19 @@ class Settings(BaseSettings):
     # pgvector 0.8+ can keep scanning until enough rows pass the filters.
     # Ignored automatically on older pgvector versions.
     hnsw_iterative_scan: Literal["off", "relaxed_order", "strict_order"] = "relaxed_order"
+
+    # --- API (app/api) -------------------------------------------------------------
+    # Browser origins allowed to call the API. In .env as JSON: API_CORS_ORIGINS=["https://..."]
+    api_cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    # Lets a request ask for "debug": true (query plan, retrieval details). Turn off when
+    # deployed: it shows how the system works internally.
+    api_debug_enabled: bool = True
+    # Per client IP, per instance. /v1/chat calls a paid model; this caps what one
+    # visitor can spend. 0 turns it off.
+    api_chat_rate_limit_per_minute: int = 20
+    api_db_pool_min_size: int = 2
+    api_db_pool_max_size: int = 10
+    api_db_connect_timeout_seconds: float = 10.0     # at startup; the API won't start without a database
 
 
 @lru_cache

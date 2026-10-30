@@ -56,6 +56,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from app.core.config import get_settings
 from app.core.llm import get_openai_client
+from app.core.retry import with_retries
 from evals.answers import answer_hash, load_answers, render_answer, render_request
 from evals.label_answers import LABELS_PATH, load_labels
 
@@ -468,13 +469,15 @@ async def cmd_collect(args) -> None:
 async def cmd_sync(args) -> None:
     s = get_settings()
     todo, skipped = _select(args.answers, args.only)
-    client = get_openai_client()
+    client = get_openai_client().with_options(max_retries=0)   # with_retries handles it (full jitter)
     sem = asyncio.Semaphore(args.concurrency)
 
     async def one(r: dict) -> dict:
         async with sem:
             try:
-                resp = await client.responses.create(**request_body(r))
+                resp = await with_retries(lambda: client.responses.create(**request_body(r)),
+                                          attempts=1 + s.openai_max_retries, base=s.llm_retry_base_seconds,
+                                          cap=s.llm_retry_cap_seconds)
             except Exception as e:     # noqa: BLE001 - one failed request is one error row
                 return parse_result(r["case_id"], None, 0, f"{type(e).__name__}: {e}")
             return parse_result(r["case_id"], resp.model_dump(mode="json"))

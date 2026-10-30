@@ -15,13 +15,12 @@ vocabulary always gets the same plan, without another API call.
 
 from __future__ import annotations
 
-import asyncio
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
 
 from app.core.config import get_settings
-from app.core.llm import get_openai_client
+from app.core.llm import call_llm, get_openai_client
 from app.query.plan import QueryPlan
 from app.query.vocabulary import Vocabulary
 
@@ -108,8 +107,9 @@ def clear_plan_cache() -> None:
 
 async def understand(message: str, vocab: Vocabulary, history: list[str] | None = None) -> Understanding:
     """
-    Raises asyncio.TimeoutError or an OpenAI error on failure; the caller
-    decides what to do (search.py falls back to the raw query).
+    Raises asyncio.TimeoutError or an OpenAI error on failure (after retries
+    within the time budget); the caller decides what to do (search.py falls
+    back to the raw query).
     """
     s = get_settings()
     key = (s.query_model, PROMPT_VERSION, vocab.version, message, tuple(history or ()))
@@ -117,11 +117,10 @@ async def understand(message: str, vocab: Vocabulary, history: list[str] | None 
         _cache.move_to_end(key)
         return Understanding(plan=_cache[key].model_copy(deep=True), latency_ms=0.0, cached=True)
 
-    client = get_openai_client().with_options(timeout=s.query_timeout_seconds,
-                                              max_retries=s.query_max_retries)
+    client = get_openai_client().with_options(timeout=s.query_timeout_seconds, max_retries=0)
     start = time.perf_counter()
-    response = await asyncio.wait_for(
-        client.responses.parse(
+    response = await call_llm(
+        lambda: client.responses.parse(
             **({"reasoning": {"effort": s.query_reasoning_effort}} if s.query_reasoning_effort else {}),
             model=s.query_model,
             instructions=_INSTRUCTIONS.format(vocabulary=vocab.prompt_block()),
@@ -129,7 +128,8 @@ async def understand(message: str, vocab: Vocabulary, history: list[str] | None 
             text_format=QueryPlan,
             store=False,
         ),
-        timeout=s.query_timeout_seconds + 1,     # backstop in case the SDK's own timeout doesn't fire
+        budget_seconds=s.query_timeout_seconds,
+        attempts=1 + s.query_max_retries,
     )
     latency = (time.perf_counter() - start) * 1000
 
