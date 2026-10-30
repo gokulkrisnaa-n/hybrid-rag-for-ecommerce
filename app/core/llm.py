@@ -24,6 +24,7 @@ from typing import Awaitable, Callable, Optional, TypeVar
 
 from openai import AsyncOpenAI
 
+from app.core import tracing
 from app.core.config import get_settings
 from app.core.retry import with_retries
 
@@ -149,12 +150,18 @@ async def embed_query(text: str) -> list[float]:
     """Embed one search query, with the same model and dimensions as the products."""
     s = get_settings()
     key = (s.embedding_model, s.embedding_dimensions, text)
-    if key in _query_cache:
-        _query_cache.move_to_end(key)
-        return _query_cache[key]
-    # A shopper is waiting: few attempts, bounded by the query budget.
-    vec = (await embed_texts([text], attempts=1 + s.query_max_retries,
-                             deadline=time.monotonic() + s.query_timeout_seconds)).vectors[0]
+    with tracing.observe("embed-query", as_type="embedding", model=s.embedding_model,
+                         input=tracing.mask_pii(text)) as obs:
+        if key in _query_cache:
+            _query_cache.move_to_end(key)
+            obs.update(metadata={"cached": True})
+            return _query_cache[key]
+        # A shopper is waiting: few attempts, bounded by the query budget.
+        result = await embed_texts([text], attempts=1 + s.query_max_retries,
+                                   deadline=time.monotonic() + s.query_timeout_seconds)
+        obs.update(metadata={"cached": False, "dimensions": s.embedding_dimensions},
+                   usage_details={"input": result.tokens})
+    vec = result.vectors[0]
     _query_cache[key] = vec
     if len(_query_cache) > _QUERY_CACHE_SIZE:
         _query_cache.popitem(last=False)
