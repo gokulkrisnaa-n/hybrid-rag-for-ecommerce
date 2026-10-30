@@ -56,6 +56,14 @@ def build_where(f: SearchFilters) -> WhereClause:
         # "CLOT" should find adidas x CLOT, so match the collaborator too.
         conds.append(sql.SQL("(lower(brand) = ANY(%(f_brands)s) OR lower(collaborator) = ANY(%(f_brands)s))"))
         params["f_brands"] = [b.lower() for b in f.brands]
+    if f.exclude_brands:
+        # Leave out the brand as maker or as collaborator ("not Nike" also drops sacai x Nike).
+        # coalesce: a product with no brand or collaborator is not excluded.
+        conds.append(sql.SQL(
+            "NOT (lower(coalesce(brand, '')) = ANY(%(f_exclude_brands)s) "
+            "OR lower(coalesce(collaborator, '')) = ANY(%(f_exclude_brands)s))"
+        ))
+        params["f_exclude_brands"] = [b.lower() for b in f.exclude_brands]
     if f.sizes:
         conds.append(sql.SQL("sizes_available && %(f_sizes)s::text[]"))
         params["f_sizes"] = f.sizes

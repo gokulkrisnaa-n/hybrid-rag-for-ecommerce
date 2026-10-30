@@ -111,7 +111,7 @@ async def search(
 
     # A wrong inferred filter can hide everything good; never let it empty the page.
     if r.has_inferred_filters and len(res.results) < min(s.qu_relax_min_results, limit):
-        relaxed = await hybrid_search(pool, SearchQuery(text=r.text, filters=explicit, limit=limit),
+        relaxed = await hybrid_search(pool, SearchQuery(text=r.text, filters=r.relaxed_filters, limit=limit),
                                       weights=r.weights, dense_text=dense_text)
         if len(relaxed.results) > len(res.results):
             qu["relaxed"] = {"reason": f"{len(res.results)} results with inferred filters"}

@@ -309,6 +309,15 @@ def test_check_answer_rules():
     r = check_answer({"expect": {"kind": ["compare"], "min_picks": 2}}, comp)
     assert not r["compare_table"][0] and not r["filters"][0] and "sold out" in r["filters"][1]
 
+    on = card(4, brand="On Running")
+    collab = card(5, brand="sacai", collaborator="Nike")
+    picks = ChatAnswer(kind="recommend", message="x",
+                       products=[AnswerProduct(product=cheap, reason=""), AnswerProduct(product=on, reason=""),
+                                 AnswerProduct(product=collab, reason="")])
+    r = check_answer({"expect": {"kind": ["recommend"], "exclude_brands": ["on running", "nike"]}}, picks)
+    assert not r["excluded_brands"][0] and "4 (On Running)" in r["excluded_brands"][1] and "5 (sacai)" in r["excluded_brands"][1]
+    assert check_answer({"expect": {"kind": ["recommend"], "exclude_brands": ["puma"]}}, picks)["excluded_brands"][0]
+
     oos = ChatAnswer(kind="out_of_scope", message="I can only help…", source="template")
     r = check_answer({"expect": {"kind": ["out_of_scope"], "source": "template", "max_picks": 0}}, oos)
     assert all(p for p, _ in r.values())
