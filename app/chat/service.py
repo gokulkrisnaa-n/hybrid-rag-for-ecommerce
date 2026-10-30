@@ -39,7 +39,11 @@ def _describe_filters(qu: dict, explicit: SearchFilters) -> dict:
     """The filters actually applied, in words the model (and the shopper) can read."""
     applied = {**explicit.model_dump(mode="json", exclude_defaults=True), **(qu.get("inferred_filters") or {})}
     if qu.get("relaxed"):
+        # Relaxing drops inferred filters but keeps excluded brands (resolve.relaxed_filters).
         applied = explicit.model_dump(mode="json", exclude_defaults=True)
+        excluded = (qu.get("inferred_filters") or {}).get("exclude_brands")
+        if excluded:
+            applied["exclude_brands"] = excluded
     applied.pop("in_stock_only", None)
     return {k: v for k, v in applied.items() if v not in (None, [], False)}
 
