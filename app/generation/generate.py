@@ -18,9 +18,10 @@ import re
 import time
 from dataclasses import dataclass
 
+from app.core import tracing
 from app.core.config import get_settings
 from app.core.llm import call_llm, get_openai_client
-from app.generation.prompt import INSTRUCTIONS, build_input
+from app.generation.prompt import INSTRUCTIONS, PROMPT_VERSION, build_input
 from app.generation.schemas import (
     AnswerDraft,
     AnswerProduct,
@@ -53,6 +54,26 @@ class Draft:
 async def draft_answer(message: str, history: list[tuple[str, str]], context: str,
                        applied_filters: dict) -> Draft:
     """Raises on timeout, API error or unparsable output; the caller falls back to a template."""
+    s = get_settings()
+    # The conversation as role-labelled messages; what the model chose from goes in metadata
+    # (the full product blocks only when asked: they are long).
+    trace_input = [{"role": r, "content": tracing.mask_pii(t)} for r, t in history]
+    trace_input.append({"role": "user", "content": tracing.mask_pii(message)})
+    products = context if s.tracing_capture_context else \
+        [{"id": int(i), "title": t} for i, t in _PRODUCT_TITLE.findall(context)]
+    with tracing.observe("generate-answer", as_type="generation", model=s.generation_model, input=trace_input,
+                         metadata={"prompt": PROMPT_VERSION, "reasoning_effort": s.generation_reasoning_effort,
+                                   "applied_filters": applied_filters, "products": products}) as gen:
+        draft = await _call_model(message, history, context, applied_filters)
+        gen.update(output=draft.answer.model_dump(mode="json"),
+                   usage_details={"input": draft.input_tokens, "output": draft.output_tokens})
+    return draft
+
+
+_PRODUCT_TITLE = re.compile(r'<product id="(\d+)">\nTitle: ([^\n]*)')
+
+
+async def _call_model(message: str, history: list[tuple[str, str]], context: str, applied_filters: dict) -> Draft:
     s = get_settings()
     client = get_openai_client().with_options(timeout=s.generation_timeout_seconds, max_retries=0)
     start = time.perf_counter()
