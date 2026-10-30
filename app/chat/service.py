@@ -18,6 +18,7 @@ import time
 
 from psycopg_pool import AsyncConnectionPool
 
+from app.core import tracing
 from app.core.config import get_settings
 from app.generation.context import build_context, load_details
 from app.generation.generate import (
@@ -81,8 +82,10 @@ async def chat(
         return finish(no_results_answer(applied))
 
     t0 = time.perf_counter()
-    details = await load_details(pool, [c.product_id for c in cards])
-    context = build_context(cards, details)
+    with tracing.observe("load-details", as_type="retriever", input={"ids": [c.product_id for c in cards]}) as obs:
+        details = await load_details(pool, [c.product_id for c in cards])
+        context = build_context(cards, details)
+        obs.update(output={"products": len(details), "context_chars": len(context)})
     timings["context"] = round((time.perf_counter() - t0) * 1000, 1)
 
     turns = [(t.role, t.content[:_TURN_CHARS]) for t in history]
@@ -92,7 +95,12 @@ async def chat(
         return finish(fallback_answer(cards, warnings=[f"generation failed: {type(e).__name__}: {e}"[:300]]))
 
     timings["generate"] = round(draft.latency_ms, 1)
-    answer = validate(draft.answer, cards, s.generation_max_picks)
+    with tracing.observe("validate-answer", as_type="guardrail",
+                         input={"kind": draft.answer.kind, "picks": [p.product_id for p in draft.answer.picks]}) as obs:
+        answer = validate(draft.answer, cards, s.generation_max_picks)
+        obs.update(output={"kind": answer.kind, "picks": [p.product.product_id for p in answer.products],
+                           "warnings": answer.warnings},
+                   level="WARNING" if answer.warnings else None)
     extra = {"context": context} if include_context else {}
     return finish(answer, prompt=PROMPT_VERSION, model=s.generation_model,
                   tokens={"input": draft.input_tokens, "output": draft.output_tokens},
