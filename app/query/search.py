@@ -22,6 +22,7 @@ import time
 
 from psycopg_pool import AsyncConnectionPool
 
+from app.core import tracing
 from app.core.config import get_settings
 from app.query.resolve import resolve
 from app.query.understanding import PROMPT_VERSION, understand
@@ -33,6 +34,28 @@ from app.schemas.query_models import SearchFilters, SearchQuery
 
 
 async def search(
+    pool: AsyncConnectionPool,
+    message: str,
+    filters: SearchFilters | None = None,
+    limit: int = 10,
+    history: list[str] | None = None,
+) -> SearchResult:
+    """One traced search step: understanding, resolving and retrieval nest under it."""
+    explicit = filters or SearchFilters()
+    trace_input = {"message": tracing.mask_pii(message), "history_turns": len(history or []), "limit": limit,
+                   "filters": explicit.model_dump(mode="json", exclude_defaults=True)}
+    with tracing.observe("search-products", as_type="chain", input=trace_input) as obs:
+        res = await _search(pool, message, filters, limit, history)
+        qu = res.debug.get("qu", {})
+        obs.update(output={"results": [{"id": r.product.product_id, "title": r.product.title}
+                                       for r in res.results[:10]]},
+                   metadata={"qu_used": qu.get("used"), "qu_reason": qu.get("reason"),
+                             "out_of_scope": qu.get("out_of_scope", False), "relaxed": "relaxed" in qu,
+                             "inferred_filters": qu.get("inferred_filters"), "timings_ms": res.timings_ms})
+        return res
+
+
+async def _search(
     pool: AsyncConnectionPool,
     message: str,
     filters: SearchFilters | None = None,
@@ -77,7 +100,13 @@ async def search(
         res.timings_ms["understand"] = round(u.latency_ms, 1)
         return finish(res, {**qu, "out_of_scope": True})
 
-    r = resolve(u.plan, explicit, vocab, raw.text)
+    with tracing.observe("resolve-filters", input={"plan_filters": {
+            k: v for k, v in u.plan.model_dump(mode="json").items()
+            if k in ("categories", "subcategories", "genders", "brands", "exclude_brands", "min_price",
+                     "max_price", "on_sale_only", "audience", "intent")}}) as obs:
+        r = resolve(u.plan, explicit, vocab, raw.text)
+        obs.update(output={"search_text": r.text, "inferred_filters": r.inferred, "dropped": r.dropped,
+                           "weights": r.weights})
     qu.update(search_text=r.text, inferred_filters=r.inferred, dropped=r.dropped, weights=r.weights)
 
     # Vector search reads natural language best, so it embeds the shopper's own words
@@ -111,8 +140,9 @@ async def search(
 
     # A wrong inferred filter can hide everything good; never let it empty the page.
     if r.has_inferred_filters and len(res.results) < min(s.qu_relax_min_results, limit):
-        relaxed = await hybrid_search(pool, SearchQuery(text=r.text, filters=r.relaxed_filters, limit=limit),
-                                      weights=r.weights, dense_text=dense_text)
+        with tracing.observe("relax-filters", metadata={"results_with_inferred_filters": len(res.results)}):
+            relaxed = await hybrid_search(pool, SearchQuery(text=r.text, filters=r.relaxed_filters, limit=limit),
+                                          weights=r.weights, dense_text=dense_text)
         if len(relaxed.results) > len(res.results):
             qu["relaxed"] = {"reason": f"{len(res.results)} results with inferred filters"}
             res = relaxed
