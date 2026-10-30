@@ -13,10 +13,12 @@ Each case in evals/qu_cases.jsonl lists only the fields it cares about:
 
 Checks (values are compared after dropping anything not in the catalog, which
 is what search actually uses):
-    categories, subcategories, genders, brands   same set (case-insensitive); [] means "none"
+    categories, subcategories, genders, brands,
+    exclude_brands                                same set (case-insensitive); [] means "none"
     min_price, max_price                          equal number; null means "not set"
     intent, audience, on_sale_only, out_of_scope  equal
     search_text_contains                          every word appears in search_text
+    search_text_excludes                          none of these words appears in search_text
     compare_items_count                           number of products to compare
     standalone_contains                           every word appears in standalone_query
 
@@ -43,7 +45,7 @@ from evals.metrics import percentile
 
 CASES_PATH = Path(__file__).parent / "qu_cases.jsonl"
 RESULTS_DIR = Path(__file__).parent / "results"
-SET_FIELDS = ("categories", "subcategories", "genders", "brands")
+SET_FIELDS = ("categories", "subcategories", "genders", "brands", "exclude_brands")
 EXACT_FIELDS = ("intent", "audience", "on_sale_only", "out_of_scope")
 PRICE_FIELDS = ("min_price", "max_price")
 
@@ -88,6 +90,10 @@ def check(expect: dict, got: dict) -> dict[str, tuple[bool, object, object]]:
             text = got.get("search_text", "").lower()
             missing = [w for w in exp if w.lower() not in text]
             out[f] = (not missing, exp, got.get("search_text", ""))
+        elif f == "search_text_excludes":
+            text = got.get("search_text", "").lower()
+            found = [w for w in exp if w.lower() in text]
+            out[f] = (not found, exp, got.get("search_text", ""))
         else:
             raise ValueError(f"unknown expectation {f!r}")
     return out
@@ -106,7 +112,8 @@ async def run(cases: list[dict]) -> list[dict]:
             plan = u.plan.model_dump(mode="json")
             cats, subs, brands, dropped = vocab.clean(categories=plan["categories"],
                                                       subcategories=plan["subcategories"], brands=plan["brands"])
-            got = {**plan, "categories": cats, "subcategories": subs, "brands": brands}
+            _, _, excluded, _ = vocab.clean(categories=[], subcategories=[], brands=plan["exclude_brands"])
+            got = {**plan, "categories": cats, "subcategories": subs, "brands": brands, "exclude_brands": excluded}
             rows.append({"case": c, "plan": plan, "dropped": dropped, "checks": check(c["expect"], got),
                          "latency_ms": u.latency_ms, "tokens": (u.input_tokens, u.output_tokens)})
             print(f"\r  {i}/{len(cases)} cases", end="", file=sys.stderr, flush=True)
