@@ -130,6 +130,9 @@ TITLE_NOUNS = {
 KNOWN_PARTNERS = {
     "ASICS", "Nike", "adidas", "New Balance", "Converse", "Vans", "Clarks", "Salomon",
     "Birkenstock", "BMW", "Columbia",
+    # Multi-word partners must be listed: an unknown one is cut at its first word
+    # ('Timberland x New Era ...' gave collaborator 'New').
+    "New Era", "The North Face",
     "New York Rangers", "New York Knicks", "New York Yankees", "New York Mets",
     "New York Giants", "New York Jets", "Brooklyn Nets", "New York Liberty",
 }

@@ -9,6 +9,7 @@ data: an instruction hidden in a description is just text.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from decimal import Decimal
 
@@ -57,6 +58,18 @@ def _clean(text: str, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
+def brand_line(brand: str | None, collaborator: str | None) -> str:
+    """'adidas' + 'CLOT' -> 'adidas x CLOT'. Some vendors already name the partner
+    ('The North Face x SKIMS'); don't repeat it ('... x SKIMS x SKIMS')."""
+    if not collaborator:
+        return brand or ""
+    if not brand:
+        return collaborator
+    if re.search(rf"(?<!\w){re.escape(collaborator)}(?!\w)", brand, re.IGNORECASE):
+        return brand
+    return f"{brand} x {collaborator}"
+
+
 def product_block(card, details: ProductDetails | None) -> str:
     """One <product> block. `card` is a ProductCard (prices and stock come from the database)."""
     d = details or ProductDetails()
@@ -70,7 +83,7 @@ def product_block(card, details: ProductDetails | None) -> str:
     lines = [
         f'<product id="{card.product_id}">',
         f"Title: {_clean(card.title, 200)}",
-        "Brand: " + " x ".join(x for x in (card.brand, card.collaborator) if x) if card.brand or card.collaborator else None,
+        f"Brand: {brand_line(card.brand, card.collaborator)}" if card.brand or card.collaborator else None,
         f"Type: {kind} | For: {card.gender or 'unknown'}",
         f"Colorway: {_clean(d.colorway, 120)}" if d.colorway else None,
         f"Materials: {_clean(', '.join(d.materials), 200)}" if d.materials else None,

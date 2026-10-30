@@ -11,6 +11,7 @@ exactly, with no judge model:
     picks           number of picked products within min_picks / max_picks
     valid_ids       no picked product outside the retrieved set
     no_price_text   no price, dollar amount or "% off" written in the text
+    no_stock_text   no sizes or stock ("sizes start at 9-12 months", "in stock") in the text
     compare_table   a "compare" answer has a table with at least two products
     filters         every pick satisfies the case's filters (price, gender, sale, in stock)
     mention         required words appear in the message or reasons
@@ -54,7 +55,7 @@ from evals.metrics import percentile
 
 CASES_PATH = Path(__file__).parent / "gen_cases.jsonl"
 RESULTS_DIR = Path(__file__).parent / "results"
-CHECKS = ("kind", "no_fallback", "picks", "valid_ids", "no_price_text", "compare_table",
+CHECKS = ("kind", "no_fallback", "picks", "valid_ids", "no_price_text", "no_stock_text", "compare_table",
           "filters", "mention", "not_mention")
 EXPECT_KEYS = {"kind", "source", "min_picks", "max_picks", "mention", "not_mention"}
 
@@ -114,6 +115,7 @@ def check_answer(case: dict, a: ChatAnswer) -> dict[str, tuple[bool, str]]:
     unknown = [w for w in a.warnings if "unknown product_id" in w]
     out["valid_ids"] = (not unknown, "; ".join(unknown) or "ok")
     out["no_price_text"] = (not any("price or discount" in w for w in a.warnings), "ok")
+    out["no_stock_text"] = (not any("size or stock" in w for w in a.warnings), "ok")
     if a.kind == "compare":
         rows = len(a.comparison.rows) if a.comparison else 0
         out["compare_table"] = (rows >= 2, f"{rows} rows")

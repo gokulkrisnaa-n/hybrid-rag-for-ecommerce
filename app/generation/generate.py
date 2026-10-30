@@ -6,7 +6,8 @@ true to the catalog:
   - picks must be products that were retrieved (anything else is dropped);
   - a "compare" needs at least two valid products, or it becomes "recommend";
   - comparison price / sale / size columns are filled from ProductCard;
-  - a dollar amount in the text is flagged (the prompt forbids it).
+  - a dollar amount, size or stock statement in the text is flagged (the
+    prompt forbids them: the page shows those facts from the database).
 If the draft is unusable, the shopper still gets the top results with a fixed
 message, never an invented product.
 """
@@ -31,7 +32,15 @@ from app.generation.schemas import (
 from app.schemas.product_models import ProductCard
 
 _PRICE_RE = re.compile(r"(\$\s?\d|\d+(\.\d+)?\s?(usd|dollars?)\b|\b\d{1,3}\s?% off\b)", re.IGNORECASE)
+# Sizes and stock change daily; the page shows them next to each product. "oversized",
+# "true to size" style wording is fine, so only size *values* and stock claims match.
+_STOCK_RE = re.compile(
+    r"(\bsizes?\s+(?:\d|[xsml]{1,3}\b|range|start|run|available|in stock)"
+    r"|\b\d{1,2}\s?[-–]\s?\d{1,2}\s?months?\b|\bin stock\b|\bsold out\b|\bout of stock\b)",
+    re.IGNORECASE,
+)
 CATALOG_COLUMNS = ("Price", "On sale", "Sizes in stock")
+MAX_TABLE_SIZES = 12
 
 
 @dataclass
@@ -77,13 +86,26 @@ def _price_text(card: ProductCard) -> str:
     return f"${lo:,.2f}" if lo == hi else f"${lo:,.2f}-${hi:,.2f}"
 
 
+def _sizes_text(card: ProductCard) -> str:
+    """Sizes for the comparison table. A long list is cut, and says so: a shopper must never
+    read a cut list as complete (half sizes from 3.5 once hid every size above 9)."""
+    if not (card.in_stock and card.sizes_available):
+        return "Sold out"
+    shown = card.sizes_available[:MAX_TABLE_SIZES]
+    more = len(card.sizes_available) - len(shown)
+    return ", ".join(shown) + (f" … (+{more} more)" if more > 0 else "")
+
+
 def _catalog_values(card: ProductCard) -> list[str]:
-    sizes = ", ".join(card.sizes_available[:12]) if card.in_stock and card.sizes_available else "Sold out"
-    return [_price_text(card), "Yes" if card.on_sale else "No", sizes]
+    return [_price_text(card), "Yes" if card.on_sale else "No", _sizes_text(card)]
 
 
 def has_price_text(text: str) -> bool:
     return bool(_PRICE_RE.search(text or ""))
+
+
+def has_stock_text(text: str) -> bool:
+    return bool(_STOCK_RE.search(text or ""))
 
 
 def validate(draft: AnswerDraft, cards: list[ProductCard], max_picks: int) -> ChatAnswer:
@@ -128,6 +150,8 @@ def validate(draft: AnswerDraft, cards: list[ProductCard], max_picks: int) -> Ch
     texts = [draft.message] + [p.reason for p in picks]
     if any(has_price_text(t) for t in texts):
         warnings.append("price or discount written in the text")
+    if any(has_stock_text(t) for t in texts):
+        warnings.append("size or stock written in the text")
 
     return ChatAnswer(
         kind=kind,

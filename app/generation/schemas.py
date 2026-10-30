@@ -98,4 +98,3 @@ class Turn(BaseModel):
 
     role: Literal["user", "assistant"]
     content: str = Field(max_length=4000)
-    
