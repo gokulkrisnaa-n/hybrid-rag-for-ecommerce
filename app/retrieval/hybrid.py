@@ -31,7 +31,7 @@ from typing import Awaitable, Callable, Mapping, TypeVar
 from psycopg import sql
 from psycopg_pool import AsyncConnectionPool
 
-from app.core import llm
+from app.core import llm, tracing
 from app.core.config import get_settings
 from app.retrieval.dense import search_dense
 from app.retrieval.fusion import reciprocal_rank_fusion
@@ -69,7 +69,32 @@ async def _fetch_cards(pool: AsyncConnectionPool, ids: list[int]) -> dict[int, P
     return {r["product_id"]: ProductCard(**r) for r in rows}
 
 
+def _top(results: list[RetrievedProduct], n: int = 10) -> list[dict]:
+    """Ids and titles for traces: enough to see what was found, without the full records."""
+    return [{"id": r.product.product_id, "title": r.product.title} for r in results[:n]]
+
+
 async def hybrid_search(
+    pool: AsyncConnectionPool,
+    query: SearchQuery,
+    mode: SearchMode = "hybrid",
+    weights: Mapping[str, float] | None = None,
+    dense_text: str | None = None,
+) -> SearchResult:
+    """One traced retrieval step (see _hybrid_search)."""
+    trace_input = {"text": tracing.mask_pii(query.text), "mode": mode, "limit": query.limit,
+                   "filters": query.filters.model_dump(mode="json", exclude_defaults=True)}
+    if dense_text and dense_text != query.text:
+        trace_input["dense_text"] = tracing.mask_pii(dense_text)
+    with tracing.observe("retrieve-hybrid", as_type="retriever", input=trace_input) as obs:
+        res = await _hybrid_search(pool, query, mode, weights, dense_text)
+        obs.update(output={"route": res.debug.get("route"), "results": _top(res.results)},
+                   metadata={"weights": res.debug.get("weights"), "timings_ms": res.timings_ms,
+                             "bm25_terms": res.debug.get("bm25_terms")})
+        return res
+
+
+async def _hybrid_search(
     pool: AsyncConnectionPool,
     query: SearchQuery,
     mode: SearchMode = "hybrid",
@@ -90,18 +115,24 @@ async def hybrid_search(
     code_query = s.route_codes_to_bm25 and is_code_query(query.text)
 
     async def run_sparse() -> tuple[list[Hit], SparsePlan | None]:
-        async with pool.connection() as conn:
-            # A style code is split into pieces by the tokenizer ("ai1203a899-105"
-            # -> "ai1203a899", "105"), so per-word checks would only mislead.
-            plan = None if code_query else await plan_sparse(conn, query.text, query.filters, fuzzy=s.bm25_fuzzy_fallback)
-            hits = await search_sparse(conn, query.text, query.filters, k,
-                                       fuzzy_terms=plan.fuzzy if plan else None)
+        with tracing.observe("retrieve-bm25", as_type="retriever", input={"text": tracing.mask_pii(query.text), "k": k}) as obs:
+            async with pool.connection() as conn:
+                # A style code is split into pieces by the tokenizer ("ai1203a899-105"
+                # -> "ai1203a899", "105"), so per-word checks would only mislead.
+                plan = None if code_query else await plan_sparse(conn, query.text, query.filters, fuzzy=s.bm25_fuzzy_fallback)
+                hits = await search_sparse(conn, query.text, query.filters, k,
+                                           fuzzy_terms=plan.fuzzy if plan else None)
+            obs.update(output={"hits": len(hits), "top_ids": [h.product_id for h in hits[:10]]},
+                       metadata={"terms": plan.as_debug() if plan else None})
         return hits, plan
 
     async def run_dense() -> list[Hit]:
-        vec = await _timed(timings, "embed_query", lambda: llm.embed_query(dense_text or query.text))
-        async with pool.connection() as conn:
-            return await _timed(timings, "dense_search", lambda: search_dense(conn, vec, query.filters, k))
+        with tracing.observe("retrieve-dense", as_type="retriever", input={"k": k}) as obs:
+            vec = await _timed(timings, "embed_query", lambda: llm.embed_query(dense_text or query.text))
+            async with pool.connection() as conn:
+                hits = await _timed(timings, "dense_search", lambda: search_dense(conn, vec, query.filters, k))
+            obs.update(output={"hits": len(hits), "top_ids": [h.product_id for h in hits[:10]]})
+        return hits
 
     started = time.perf_counter()
     sparse_hits: list[Hit] = []
