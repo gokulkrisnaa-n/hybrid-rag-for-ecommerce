@@ -31,11 +31,14 @@ class SearchFilters(BaseModel):
     categories: list[str] = Field(default_factory=list)        # e.g. ["footwear"]
     subcategories: list[str] = Field(default_factory=list)     # e.g. ["low top sneakers"]
     brands: list[str] = Field(default_factory=list)            # matches brand OR collaborator
+    # Products whose brand OR collaborator is one of these are left out ("other than On
+    # Running"). Products with no brand stay in, like exclude_genders.
+    exclude_brands: list[str] = Field(default_factory=list)
     sizes: list[str] = Field(default_factory=list)             # any of these sizes in stock
     in_stock_only: bool = True
     on_sale_only: bool = False
 
-    @field_validator("categories", "subcategories", "brands", "sizes", mode="before")
+    @field_validator("categories", "subcategories", "brands", "exclude_brands", "sizes", mode="before")
     @classmethod
     def _clean_list(cls, v: object, info: ValidationInfo) -> object:
         """
