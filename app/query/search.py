@@ -4,8 +4,9 @@ hybrid search with the resulting plan.
 
     message ─> [style code?] ──────────────────────────────> hybrid search (BM25 route)
             └> understand (LLM) ─> resolve ─> hybrid search ─> too few results? ─> retry
-                    │ timeout / error                               without inferred filters
-                    └──────────────> hybrid search on the raw message (Round 1 rules)
+            │       │ timeout / error                               without inferred filters
+            │       └──────────────> hybrid search on the raw message (Round 1 rules)
+            └> embed the message (single-turn), at the same time, ready for vector search
 
 Everything that happened is recorded in result.debug["qu"], so a bad answer
 can be traced to the plan, the filters or the retrieval.
@@ -22,7 +23,7 @@ import time
 
 from psycopg_pool import AsyncConnectionPool
 
-from app.core import tracing
+from app.core import llm, tracing
 from app.core.config import get_settings
 from app.query.resolve import resolve
 from app.query.understanding import PROMPT_VERSION, understand
@@ -77,6 +78,13 @@ async def _search(
         reason = "disabled" if not s.query_understanding else "style code"
         return finish(await hybrid_search(pool, raw), {"used": False, "reason": reason})
 
+    # Vector search will embed the shopper's own words (unless it's a follow-up, which
+    # embeds the plan's standalone query), and that doesn't depend on the plan: start
+    # it now so it runs while the LLM reads the message, instead of after (~0.5 s saved).
+    # It also serves the fallback paths below, which search the raw message.
+    if s.prefetch_query_embedding and s.qu_dense_text == "original" and not history:
+        llm.start_embed_query(raw.text)
+
     try:
         vocab = await load_vocabulary(pool)
         u = await understand(raw.text, vocab, history)
@@ -90,7 +98,7 @@ async def _search(
         "prompt": PROMPT_VERSION,
         "plan": u.plan.model_dump(mode="json"),
         "cached": u.cached,
-        "tokens": {"input": u.input_tokens, "output": u.output_tokens},
+        "tokens": {"input": u.input_tokens, "cached": u.cached_tokens, "output": u.output_tokens},
     }
 
     if u.plan.out_of_scope:
