@@ -1,5 +1,6 @@
 """
 POST /v1/chat: one turn of the shopping assistant.
+POST /v1/chat/stream: the same turn, with the answer's text streamed (Server-Sent Events).
 
 Stateless: the client sends the earlier turns with every request. If the
 model is slow or fails, the answer still comes back (200) with the top search
@@ -15,12 +16,14 @@ bad answers can be filtered in Langfuse without reading every trace:
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import StreamingResponse
 from psycopg_pool import AsyncConnectionPool
 
 from app.api.deps import chat_rate_limit, get_pool, require_debug_allowed, settings_dep
 from app.api.errors import request_id_of
 from app.api.schemas import ERROR_RESPONSES, ChatRequest, ChatResponse, ErrorResponse
-from app.chat.service import chat
+from app.api.sse import sse_stream
+from app.chat.service import chat, chat_stream
 from app.core import tracing
 from app.core.config import Settings
 from app.generation.prompt import PROMPT_VERSION as GEN_PROMPT
@@ -37,6 +40,35 @@ def is_fallback(answer: ChatAnswer) -> bool:
                                          for w in answer.warnings)
 
 
+def _trace_input(body: ChatRequest) -> dict:
+    return {
+        "message": tracing.mask_pii(body.message),
+        "history": [{"role": t.role, "content": tracing.mask_pii(t.content)} for t in body.history],
+        "filters": body.filters.model_dump(mode="json", exclude_defaults=True),
+    }
+
+
+def _record(root: tracing.Observation, answer: ChatAnswer) -> None:
+    """The trace's output and the automatic scores."""
+    root.update(output={"kind": answer.kind, "message": answer.message,
+                        "products": [{"id": p.product.product_id, "title": p.product.title}
+                                     for p in answer.products],
+                        "warnings": answer.warnings},
+                metadata={"timings_ms": answer.timings_ms})
+    root.score("answer-fallback", 1 if is_fallback(answer) else 0, data_type="BOOLEAN")
+    root.score("answer-warnings", len(answer.warnings), data_type="NUMERIC")
+    root.score("answer-kind", answer.kind, data_type="CATEGORICAL")
+
+
+def _response(answer: ChatAnswer, body: ChatRequest, request_id: str) -> ChatResponse:
+    data = answer.model_dump()
+    data["debug"] = answer.debug if body.debug else None
+    return ChatResponse(request_id=request_id, **data)
+
+
+TAGS = ["chat", f"qu:{QU_PROMPT}", f"gen:{GEN_PROMPT}"]
+
+
 @router.post(
     "/chat",
     response_model=ChatResponse,
@@ -51,23 +83,43 @@ async def chat_turn(
 ) -> ChatResponse:
     require_debug_allowed(body.debug, settings)
     request_id = request_id_of(request)
-    trace_input = {
-        "message": tracing.mask_pii(body.message),
-        "history": [{"role": t.role, "content": tracing.mask_pii(t.content)} for t in body.history],
-        "filters": body.filters.model_dump(mode="json", exclude_defaults=True),
-    }
-    with tracing.request_trace("chat", request_id=request_id, input=trace_input, session_id=body.session_id,
-                               tags=["chat", f"qu:{QU_PROMPT}", f"gen:{GEN_PROMPT}"]) as root:
+    with tracing.request_trace("chat", request_id=request_id, input=_trace_input(body),
+                               session_id=body.session_id, tags=TAGS) as root:
         answer = await chat(pool, body.message, body.history, body.filters)
-        root.update(output={"kind": answer.kind, "message": answer.message,
-                            "products": [{"id": p.product.product_id, "title": p.product.title}
-                                         for p in answer.products],
-                            "warnings": answer.warnings},
-                    metadata={"timings_ms": answer.timings_ms})
-        root.score("answer-fallback", 1 if is_fallback(answer) else 0, data_type="BOOLEAN")
-        root.score("answer-warnings", len(answer.warnings), data_type="NUMERIC")
-        root.score("answer-kind", answer.kind, data_type="CATEGORICAL")
+        _record(root, answer)
+    return _response(answer, body, request_id)
 
-    data = answer.model_dump()
-    data["debug"] = answer.debug if body.debug else None
-    return ChatResponse(request_id=request_id, **data)
+
+@router.post(
+    "/chat/stream",
+    response_class=StreamingResponse,
+    dependencies=[Depends(chat_rate_limit)],
+    responses={
+        200: {"content": {"text/event-stream": {"schema": {"type": "string"}}},
+              "description": "Server-Sent Events: `meta` {request_id}, `status` {stage: searching | writing}, "
+                             "`delta` {text}, then `answer` (the same body as POST /v1/chat) or `error`. "
+                             "Show the deltas as they arrive, then replace them with answer.message."},
+        **ERROR_RESPONSES,
+        429: {"model": ErrorResponse, "description": "Rate limited; see Retry-After"},
+    },
+)
+async def chat_turn_stream(
+    body: ChatRequest,
+    request: Request,
+    pool: AsyncConnectionPool = Depends(get_pool),
+    settings: Settings = Depends(settings_dep),
+) -> StreamingResponse:
+    """The same turn as POST /v1/chat, with the answer's text streamed as it is written.
+    Errors found before streaming (invalid body, rate limit) are normal JSON errors."""
+    require_debug_allowed(body.debug, settings)
+    request_id = request_id_of(request)
+
+    async def run(emit) -> dict:
+        with tracing.request_trace("chat", request_id=request_id, input=_trace_input(body),
+                                   session_id=body.session_id, tags=TAGS + ["stream"]) as root:
+            answer = await chat_stream(pool, body.message, body.history, body.filters, emit=emit)
+            _record(root, answer)
+        return _response(answer, body, request_id).model_dump(mode="json")
+
+    return StreamingResponse(sse_stream(run, request_id), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
