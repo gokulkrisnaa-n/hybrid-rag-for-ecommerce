@@ -240,7 +240,7 @@ async def test_chat_happy_path(pipeline):
     assert pipeline["draft_args"]["history"] == [("user", "black hoodie"), ("assistant", "Here are some.")]
     assert pipeline["draft_args"]["applied"] == {"max_price": "200", "categories": ["footwear"]}
     assert "Gum sole" in pipeline["draft_args"]["context"]
-    assert a.debug["retrieved"] == [1, 2, 3] and a.debug["tokens"] == {"input": 2000, "output": 150}
+    assert a.debug["retrieved"] == [1, 2, 3] and a.debug["tokens"] == {"input": 2000, "cached": 0, "output": 150}
     assert {"search", "context", "generate", "total"} <= set(a.timings_ms)
 
 
