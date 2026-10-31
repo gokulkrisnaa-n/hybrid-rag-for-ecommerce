@@ -86,7 +86,7 @@ class Settings(BaseSettings):
     # Passed as reasoning={"effort": ...} to trade depth for latency. "low" cut the
     # LLM step from 2.5 s to 1.7 s (p50) with no measurable loss in retrieval quality.
     # Set to an empty value (QUERY_REASONING_EFFORT=) for models that don't support it.
-    query_reasoning_effort: Optional[str] = "low"
+    query_reasoning_effort: Optional[str] = "none"
     # Start embedding the message while query understanding runs (single-turn messages:
     # the vector doesn't depend on the plan). Off: embed only after the plan is ready.
     prefetch_query_embedding: bool = True
