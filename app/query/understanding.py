@@ -21,7 +21,7 @@ from dataclasses import dataclass
 
 from app.core import tracing
 from app.core.config import get_settings
-from app.core.llm import call_llm, get_openai_client
+from app.core.llm import call_llm, get_openai_client, trace_usage, usage_counts
 from app.query.plan import QueryPlan
 from app.query.vocabulary import Vocabulary
 
@@ -92,6 +92,7 @@ class Understanding:
     input_tokens: int = 0
     output_tokens: int = 0
     cached: bool = False
+    cached_tokens: int = 0          # prompt tokens served from OpenAI's prompt cache
 
 
 def _user_input(message: str, history: list[str] | None) -> str:
@@ -135,7 +136,7 @@ async def understand(message: str, vocab: Vocabulary, history: list[str] | None 
                                    "reasoning_effort": s.query_reasoning_effort}) as gen:
         result = await _call_model(message, history, vocab)
         gen.update(output=result.plan.model_dump(mode="json"),
-                   usage_details={"input": result.input_tokens, "output": result.output_tokens})
+                   usage_details=trace_usage(result.input_tokens, result.cached_tokens, result.output_tokens))
     _cache[key] = result.plan.model_copy(deep=True)
     if len(_cache) > _CACHE_SIZE:
         _cache.popitem(last=False)
@@ -154,6 +155,9 @@ async def _call_model(message: str, history: list[str] | None, vocab: Vocabulary
             input=_user_input(message, history),
             text_format=QueryPlan,
             store=False,
+            # Same key for every request with this prompt: routes them to the same prompt cache
+            # (the instructions and vocabulary, ~1.7k tokens, never change between requests).
+            prompt_cache_key=f"kith-qu-{PROMPT_VERSION}",
         ),
         budget_seconds=s.query_timeout_seconds,
         attempts=1 + s.query_max_retries,
@@ -163,10 +167,6 @@ async def _call_model(message: str, history: list[str] | None, vocab: Vocabulary
     plan = response.output_parsed
     if plan is None:
         raise ValueError("model returned no parsable plan (refusal or incomplete output)")
-    usage = response.usage
-    return Understanding(
-        plan=plan,
-        latency_ms=latency,
-        input_tokens=getattr(usage, "input_tokens", 0) or 0,
-        output_tokens=getattr(usage, "output_tokens", 0) or 0,
-    )
+    input_tokens, cached_tokens, output_tokens = usage_counts(response.usage)
+    return Understanding(plan=plan, latency_ms=latency, input_tokens=input_tokens,
+                         output_tokens=output_tokens, cached_tokens=cached_tokens)
