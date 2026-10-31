@@ -14,13 +14,19 @@ message, never an invented product.
 
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Awaitable, Callable
+
+from pydantic_core import from_json
 
 from app.core import tracing
 from app.core.config import get_settings
-from app.core.llm import call_llm, get_openai_client
+from app.core.llm import call_llm, get_openai_client, llm_slot, trace_usage, usage_counts
+from app.core.retry import backoff_delay, is_retryable
 from app.generation.prompt import INSTRUCTIONS, PROMPT_VERSION, build_input
 from app.generation.schemas import (
     AnswerDraft,
@@ -49,52 +55,132 @@ class Draft:
     latency_ms: float
     input_tokens: int = 0
     output_tokens: int = 0
+    cached_tokens: int = 0
+    first_token_ms: float | None = None      # streamed answers: when the first words were sent
 
 
 async def draft_answer(message: str, history: list[tuple[str, str]], context: str,
                        applied_filters: dict) -> Draft:
     """Raises on timeout, API error or unparsable output; the caller falls back to a template."""
     s = get_settings()
-    # The conversation as role-labelled messages; what the model chose from goes in metadata
-    # (the full product blocks only when asked: they are long).
-    trace_input = [{"role": r, "content": tracing.mask_pii(t)} for r, t in history]
-    trace_input.append({"role": "user", "content": tracing.mask_pii(message)})
-    products = context if s.tracing_capture_context else \
-        [{"id": int(i), "title": t} for i, t in _PRODUCT_TITLE.findall(context)]
+    trace_input, metadata = _trace_input(message, history, context, applied_filters)
     with tracing.observe("generate-answer", as_type="generation", model=s.generation_model, input=trace_input,
-                         metadata={"prompt": PROMPT_VERSION, "reasoning_effort": s.generation_reasoning_effort,
-                                   "applied_filters": applied_filters, "products": products}) as gen:
+                         metadata=metadata) as gen:
         draft = await _call_model(message, history, context, applied_filters)
         gen.update(output=draft.answer.model_dump(mode="json"),
-                   usage_details={"input": draft.input_tokens, "output": draft.output_tokens})
+                   usage_details=trace_usage(draft.input_tokens, draft.cached_tokens, draft.output_tokens))
     return draft
+
+
+async def stream_answer(message: str, history: list[tuple[str, str]], context: str, applied_filters: dict,
+                        on_delta: Callable[[str], Awaitable[None]]) -> Draft:
+    """
+    Like draft_answer, but calls on_delta(text) with each new piece of the answer's
+    `message` field as the model writes it (read from the partial JSON), so a shopper
+    sees words before the whole answer exists. Returns the complete draft, which the
+    caller validates as usual.
+
+    Retries (full jitter) only before the first piece is sent: after that the shopper
+    has seen text, so a failure is raised and the caller falls back.
+    """
+    s = get_settings()
+    trace_input, metadata = _trace_input(message, history, context, applied_filters)
+    with tracing.observe("generate-answer", as_type="generation", model=s.generation_model, input=trace_input,
+                         metadata={**metadata, "streamed": True}) as gen:
+        client = get_openai_client().with_options(timeout=s.generation_timeout_seconds, max_retries=0)
+        request = _request(message, history, context, applied_filters)
+        attempts = 1 + s.generation_max_retries
+        start = time.perf_counter()
+        sent, first_ms, final = "", None, None
+        async with asyncio.timeout(s.generation_timeout_seconds):      # the whole stream, slot wait included
+            async with llm_slot():
+                for attempt in range(attempts):
+                    buffer = ""
+                    try:
+                        async with client.responses.stream(**request) as stream:
+                            async for event in stream:
+                                if getattr(event, "type", "") != "response.output_text.delta":
+                                    continue
+                                buffer += event.delta
+                                text = partial_message(buffer)
+                                if text and len(text) > len(sent) and text.startswith(sent):
+                                    if not sent:
+                                        first_ms = (time.perf_counter() - start) * 1000
+                                        gen.update(completion_start_time=datetime.now(timezone.utc))
+                                    await on_delta(text[len(sent):])
+                                    sent = text
+                            final = await stream.get_final_response()
+                        break
+                    except Exception as e:
+                        if sent or attempt == attempts - 1 or not is_retryable(e):
+                            raise
+                        await asyncio.sleep(backoff_delay(attempt, s.llm_retry_base_seconds, s.llm_retry_cap_seconds))
+        parsed = getattr(final, "output_parsed", None)
+        if parsed is None:
+            raise ValueError("model returned no parsable answer (refusal or incomplete output)")
+        input_tokens, cached_tokens, output_tokens = usage_counts(final.usage)
+        draft = Draft(parsed, (time.perf_counter() - start) * 1000, input_tokens, output_tokens, cached_tokens,
+                      first_token_ms=first_ms)
+        gen.update(output=parsed.model_dump(mode="json"),
+                   usage_details=trace_usage(input_tokens, cached_tokens, output_tokens))
+    return draft
+
+
+def partial_message(buffer: str) -> str | None:
+    """The `message` field of a structured answer still being written:
+    '{"kind":"recommend","message":"Here are tw' -> 'Here are tw'. None until it starts.
+    An escape sequence cut in half is left out until the rest arrives."""
+    try:
+        data = from_json(buffer, allow_partial="trailing-strings")
+    except ValueError:
+        return None
+    msg = data.get("message") if isinstance(data, dict) else None
+    return msg if isinstance(msg, str) else None
 
 
 _PRODUCT_TITLE = re.compile(r'<product id="(\d+)">\nTitle: ([^\n]*)')
 
 
+def _trace_input(message: str, history: list[tuple[str, str]], context: str,
+                 applied_filters: dict) -> tuple[list[dict], dict]:
+    """The conversation as role-labelled messages; what the model chose from goes in metadata
+    (the full product blocks only when asked: they are long)."""
+    s = get_settings()
+    messages = [{"role": r, "content": tracing.mask_pii(t)} for r, t in history]
+    messages.append({"role": "user", "content": tracing.mask_pii(message)})
+    products = context if s.tracing_capture_context else \
+        [{"id": int(i), "title": t} for i, t in _PRODUCT_TITLE.findall(context)]
+    return messages, {"prompt": PROMPT_VERSION, "reasoning_effort": s.generation_reasoning_effort,
+                      "applied_filters": applied_filters, "products": products}
+
+
+def _request(message: str, history: list[tuple[str, str]], context: str, applied_filters: dict) -> dict:
+    """The Responses API arguments, shared by the plain and the streaming call."""
+    s = get_settings()
+    return {
+        **({"reasoning": {"effort": s.generation_reasoning_effort}} if s.generation_reasoning_effort else {}),
+        "model": s.generation_model,
+        "instructions": INSTRUCTIONS,
+        "input": build_input(message, history, context, applied_filters),
+        "text_format": AnswerDraft,
+        "store": False,
+        "prompt_cache_key": f"kith-gen-{PROMPT_VERSION}",
+    }
+
+
 async def _call_model(message: str, history: list[tuple[str, str]], context: str, applied_filters: dict) -> Draft:
     s = get_settings()
     client = get_openai_client().with_options(timeout=s.generation_timeout_seconds, max_retries=0)
+    request = _request(message, history, context, applied_filters)
     start = time.perf_counter()
-    response = await call_llm(
-        lambda: client.responses.parse(
-            **({"reasoning": {"effort": s.generation_reasoning_effort}} if s.generation_reasoning_effort else {}),
-            model=s.generation_model,
-            instructions=INSTRUCTIONS,
-            input=build_input(message, history, context, applied_filters),
-            text_format=AnswerDraft,
-            store=False,
-        ),
-        budget_seconds=s.generation_timeout_seconds,
-        attempts=1 + s.generation_max_retries,
-    )
+    response = await call_llm(lambda: client.responses.parse(**request),
+                              budget_seconds=s.generation_timeout_seconds,
+                              attempts=1 + s.generation_max_retries)
     latency = (time.perf_counter() - start) * 1000
     if response.output_parsed is None:
         raise ValueError("model returned no parsable answer (refusal or incomplete output)")
-    usage = response.usage
-    return Draft(response.output_parsed, latency,
-                 getattr(usage, "input_tokens", 0) or 0, getattr(usage, "output_tokens", 0) or 0)
+    input_tokens, cached_tokens, output_tokens = usage_counts(response.usage)
+    return Draft(response.output_parsed, latency, input_tokens, output_tokens, cached_tokens)
 
 
 # ---------------------------------------------------------------------------
