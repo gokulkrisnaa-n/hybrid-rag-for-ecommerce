@@ -15,6 +15,7 @@ started and the caller falls back instead.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 import weakref
 from collections import OrderedDict
@@ -62,7 +63,7 @@ class EmbeddingResult:
 _slots: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore]" = weakref.WeakKeyDictionary()
 
 
-def _llm_slot() -> asyncio.Semaphore:
+def llm_slot() -> asyncio.Semaphore:
     """Caps model calls in flight from this process, so a traffic spike queues here
     instead of turning into a burst of 429s from OpenAI."""
     loop = asyncio.get_running_loop()
@@ -83,11 +84,25 @@ async def call_llm(make_call: Callable[[], Awaitable[T]], *, budget_seconds: flo
     deadline = time.monotonic() + budget_seconds
 
     async def run() -> T:
-        async with _llm_slot():
+        async with llm_slot():
             return await with_retries(make_call, attempts=attempts, base=s.llm_retry_base_seconds,
                                       cap=s.llm_retry_cap_seconds, deadline=deadline)
 
     return await asyncio.wait_for(run(), timeout=budget_seconds + 1)   # backstop if a timeout misfires
+
+
+def usage_counts(usage: object) -> tuple[int, int, int]:
+    """(input, cached input, output) tokens from a Responses API usage object. Cached tokens
+    are the part of the prompt OpenAI served from its prompt cache (cheaper, often faster)."""
+    details = getattr(usage, "input_tokens_details", None)
+    return (getattr(usage, "input_tokens", 0) or 0,
+            getattr(details, "cached_tokens", 0) or 0,
+            getattr(usage, "output_tokens", 0) or 0)
+
+
+def trace_usage(input_tokens: int, cached_tokens: int, output_tokens: int) -> dict[str, int]:
+    """Usage for a Langfuse generation: cached tokens apart from the rest, so cost is right."""
+    return {"input": input_tokens - cached_tokens, "input_cached_tokens": cached_tokens, "output": output_tokens}
 
 
 # ---------------------------------------------------------------------------
@@ -137,25 +152,30 @@ async def embed_texts(texts: list[str], *, attempts: Optional[int] = None,
 # Shoppers (and eval runs) repeat queries; an identical query always gives the
 # same vector, so recent ones are kept in memory. Keyed by model and dimensions
 # too, so a config change never returns a stale vector.
+#
+# Requests still in flight are shared too: search starts embedding the message
+# while query understanding runs (start_embed_query), and when retrieval asks for
+# the same vector it waits for that request instead of sending a second one.
 _QUERY_CACHE_SIZE = 1024
 _query_cache: OrderedDict[tuple[str, int, str], list[float]] = OrderedDict()
+_in_flight: dict[tuple[str, int, str], "asyncio.Task[list[float]]"] = {}
 
 
 def clear_query_cache() -> None:
     """Forget cached query vectors (evals use this so every mode pays for its own embedding)."""
     _query_cache.clear()
+    _in_flight.clear()
 
 
-async def embed_query(text: str) -> list[float]:
-    """Embed one search query, with the same model and dimensions as the products."""
+def _query_key(text: str) -> tuple[str, int, str]:
     s = get_settings()
-    key = (s.embedding_model, s.embedding_dimensions, text)
+    return s.embedding_model, s.embedding_dimensions, text
+
+
+async def _embed_and_cache(key: tuple[str, int, str], text: str) -> list[float]:
+    s = get_settings()
     with tracing.observe("embed-query", as_type="embedding", model=s.embedding_model,
                          input=tracing.mask_pii(text)) as obs:
-        if key in _query_cache:
-            _query_cache.move_to_end(key)
-            obs.update(metadata={"cached": True})
-            return _query_cache[key]
         # A shopper is waiting: few attempts, bounded by the query budget.
         result = await embed_texts([text], attempts=1 + s.query_max_retries,
                                    deadline=time.monotonic() + s.query_timeout_seconds)
@@ -166,3 +186,51 @@ async def embed_query(text: str) -> list[float]:
     if len(_query_cache) > _QUERY_CACHE_SIZE:
         _query_cache.popitem(last=False)
     return vec
+
+
+def _start(key: tuple[str, int, str], text: str) -> "asyncio.Task[list[float]]":
+    task = _in_flight.get(key)
+    if task is None:
+        task = asyncio.ensure_future(_embed_and_cache(key, text))
+        _in_flight[key] = task
+
+        def done(t: asyncio.Task) -> None:
+            if _in_flight.get(key) is t:
+                del _in_flight[key]
+            if not t.cancelled():
+                t.exception()        # a failed prefetch nobody waited for must not warn "never retrieved"
+        task.add_done_callback(done)
+    return task
+
+
+def start_embed_query(text: str) -> None:
+    """Start embedding `text` in the background (if it isn't cached or already running), so a
+    later embed_query(text) finds it ready. Fire and forget: errors surface in that later call."""
+    key = _query_key(text)
+    if key not in _query_cache:
+        _start(key, text)
+
+
+async def embed_query(text: str) -> list[float]:
+    """Embed one search query, with the same model and dimensions as the products."""
+    key = _query_key(text)
+    if key in _query_cache:
+        _query_cache.move_to_end(key)
+        with tracing.observe("embed-query", as_type="embedding", model=key[0],
+                             input=tracing.mask_pii(text), metadata={"cached": True}):
+            return _query_cache[key]
+    shared = key in _in_flight
+    task = _start(key, text)
+    if shared:
+        with tracing.observe("embed-query-wait", metadata={"joined_in_flight": True}):
+            return await asyncio.shield(task)      # one caller giving up must not cancel it for the rest
+    return await asyncio.shield(task)
+
+
+async def warm_up() -> None:
+    """Open the HTTPS connection to OpenAI at startup, so the first shopper doesn't pay for
+    the TLS handshake. Not traced; failures are only logged (the API still starts)."""
+    try:
+        await embed_texts(["warm up"], attempts=1, deadline=time.monotonic() + 10)
+    except Exception as e:  # noqa: BLE001
+        logging.getLogger("llm").warning("OpenAI warm-up failed: %s: %s", type(e).__name__, e)
