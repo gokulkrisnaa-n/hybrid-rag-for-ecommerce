@@ -87,6 +87,9 @@ class Settings(BaseSettings):
     # LLM step from 2.5 s to 1.7 s (p50) with no measurable loss in retrieval quality.
     # Set to an empty value (QUERY_REASONING_EFFORT=) for models that don't support it.
     query_reasoning_effort: Optional[str] = "low"
+    # Start embedding the message while query understanding runs (single-turn messages:
+    # the vector doesn't depend on the plan). Off: embed only after the plan is ready.
+    prefetch_query_embedding: bool = True
     # What vector search embeds when query understanding ran: "original" (the
     # shopper's message; for a follow-up, the plan's self-contained standalone_query)
     # or "rewrite" (the plan's keyword search_text). BM25
