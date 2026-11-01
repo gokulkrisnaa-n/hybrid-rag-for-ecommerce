@@ -191,7 +191,7 @@ async def test_query_understanding_is_a_generation_then_a_cached_span(spans, env
     first, second = spans()["understand-query"]
     a, b = attrs(first), attrs(second)
     assert a["langfuse.observation.type"] == "generation" and a["langfuse.observation.model.name"] == "gpt-6-luna"
-    assert json.loads(a["langfuse.observation.usage_details"]) == {"input": 900, "output": 60}
+    assert json.loads(a["langfuse.observation.usage_details"]) == {"input": 900, "input_cached_tokens": 0, "output": 60}
     assert "[email]" in a["langfuse.observation.input"] and "jane@" not in a["langfuse.observation.input"]
     assert b["langfuse.observation.type"] == "span" and b["langfuse.observation.metadata.cached"] == "true"
     understanding.clear_plan_cache()
@@ -341,6 +341,9 @@ async def test_full_chat_pipeline_trace_tree(spans, env):
         env.setattr(mod, name, fake)
     understanding.clear_plan_cache()
     llm.clear_query_cache()
+    env.setenv("PREFETCH_QUERY_EMBEDDING", "true")
+    from app.core.config import get_settings
+    get_settings.cache_clear()
 
     with tracing.request_trace("chat", request_id=RID, input={"message": "hoodie"}):
         answer = await service.chat(Pool(), "a hoodie please")
@@ -356,7 +359,7 @@ async def test_full_chat_pipeline_trace_tree(spans, env):
         "retrieve-hybrid": "search-products",
         "retrieve-bm25": "retrieve-hybrid",
         "retrieve-dense": "retrieve-hybrid",
-        "embed-query": "retrieve-dense",
+        "embed-query": "search-products",         # started early, alongside understand-query
         "load-details": "chat",
         "generate-answer": "chat",
         "validate-answer": "chat",
@@ -365,7 +368,10 @@ async def test_full_chat_pipeline_trace_tree(spans, env):
     assert types["understand-query"] == "generation" and types["generate-answer"] == "generation"
     assert types["embed-query"] == "embedding" and types["retrieve-bm25"] == types["retrieve-dense"] == "retriever"
     assert types["validate-answer"] == "guardrail" and types["search-products"] == "chain"
-    assert json.loads(attrs(got["embed-query"][0])["langfuse.observation.usage_details"]) == {"input": 7}
+    prefetch, lookup = got["embed-query"]
+    assert json.loads(attrs(prefetch)["langfuse.observation.usage_details"]) == {"input": 7}
+    assert parent_of(lookup, got) == "retrieve-dense"                 # retrieval found it ready
+    assert attrs(lookup)["langfuse.observation.metadata.cached"] == "true"
     answer = attrs(got["generate-answer"][0])
     assert json.loads(answer["langfuse.observation.input"]) == [{"role": "user", "content": "a hoodie please"}]
     assert "Hoodie 2" in answer["langfuse.observation.metadata.products"]

@@ -11,7 +11,7 @@ the request-context middleware writes its own access log, with request ids.
 --proxy-headers: the rate limit keys on the real client IP, not the proxy's.
 
 Startup (lifespan) opens the database pool and warms what the first request
-would otherwise pay for: the catalog vocabulary and the OpenAI client. The API
+would otherwise pay for: the catalog vocabulary and the OpenAI connection. The API
 refuses to start without a database rather than failing every request.
 Interactive docs: /docs.
 """
@@ -33,7 +33,7 @@ from app.api.routes import chat, feedback, health, search
 from app.core import tracing
 from app.core.config import get_settings
 from app.core.db import create_pool
-from app.core.llm import get_openai_client
+from app.core.llm import get_openai_client, warm_up
 from app.query.vocabulary import load_vocabulary
 
 log = logging.getLogger("api")
@@ -57,6 +57,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         vocab = await load_vocabulary(pool)
         get_openai_client()
+        await warm_up()            # open the OpenAI connection now, not on the first shopper's request
         log.info("ready: pool %d-%d, vocabulary %d categories / %d brands, models %s / %s, tracing %s",
                  s.api_db_pool_min_size, s.api_db_pool_max_size, len(vocab.categories), len(vocab.brands),
                  s.query_model, s.generation_model, "on" if tracing.tracing_active() else "off")
