@@ -1,0 +1,70 @@
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+  background: var(--c-bg);
+}
+
+.composer:focus-within {
+  border-color: var(--c-ink);
+}
+
+.composer__input {
+  width: 100%;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  background: transparent;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* The box's own border shows focus (.composer:focus-within). */
+.composer__input:focus-visible {
+  outline: none;
+}
+
+.composer__input::placeholder {
+  color: var(--c-faint);
+}
+
+.composer__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.composer__hint {
+  font-size: var(--t-label);
+  letter-spacing: 0.02em;
+  color: var(--c-muted);
+}
+
+.composer__hint--over {
+  color: var(--c-sale);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+@media (max-width: 520px) {
+  .composer__hint {
+    display: none;
+  }
+
+  .composer__row {
+    justify-content: flex-end;
+  }
+}

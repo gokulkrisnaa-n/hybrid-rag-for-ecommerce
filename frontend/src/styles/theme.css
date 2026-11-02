@@ -1,0 +1,138 @@
+/*
+ * Design tokens. A quiet, monochrome retail look: white page, one charcoal for
+ * text, buttons and rules; light grey behind product images; square corners;
+ * small uppercase labels with wide letter spacing; a serif for titles.
+ * Colors sampled from the reference store page; fonts are open look-alikes.
+ */
+
+:root {
+  /* color */
+  --c-bg: #ffffff;
+  --c-ink: #333333;          /* text, primary buttons, active rules */
+  --c-ink-soft: #494949;     /* body copy */
+  --c-muted: #757575;        /* secondary labels, captions */
+  --c-faint: #a3a3a3;        /* placeholders, disabled */
+  --c-line: #e5e5e5;         /* dividers, input borders */
+  --c-image: #ebebeb;        /* behind product photos */
+  --c-hover: #f5f5f5;
+  --c-sale: #b0001e;         /* sale prices only */
+  --c-on-ink: #ffffff;
+
+  /* type */
+  --f-sans: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --f-serif: "Source Serif 4", Georgia, "Times New Roman", serif;
+
+  --t-nav: 12px;             /* top navigation, uppercase */
+  --t-label: 11px;           /* breadcrumbs, small uppercase labels */
+  --t-body: 13px;            /* answers, descriptions */
+  --t-small: 12px;
+  --t-title: 20px;           /* serif titles (product title, question) */
+  --t-display: 28px;         /* serif empty-state heading */
+
+  --track-wide: 0.18em;      /* nav and buttons */
+  --track: 0.08em;           /* small labels */
+  --lh-body: 1.6;
+
+  /* space and shape */
+  --radius: 0;               /* square corners everywhere */
+  --header-h: 56px;
+  --content-w: 760px;
+  --gutter: 20px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--c-bg);
+  color: var(--c-ink);
+  font-family: var(--f-sans);
+  font-size: var(--t-body);
+  line-height: var(--lh-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 1px solid var(--c-ink);
+  outline-offset: 2px;
+}
+
+/* Shared pieces */
+
+.label {
+  font-size: var(--t-label);
+  text-transform: uppercase;
+  letter-spacing: var(--track);
+  color: var(--c-muted);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  padding: 0 24px;
+  border: 1px solid var(--c-ink);
+  border-radius: var(--radius);
+  background: var(--c-ink);
+  color: var(--c-on-ink);
+  font-size: var(--t-small);
+  text-transform: uppercase;
+  letter-spacing: var(--track-wide);
+  cursor: pointer;
+}
+
+.btn:hover {
+  background: #000;
+}
+
+.btn:disabled {
+  background: var(--c-faint);
+  border-color: var(--c-faint);
+  cursor: not-allowed;
+}
+
+.btn--outline {
+  background: var(--c-bg);
+  color: var(--c-ink);
+}
+
+.btn--outline:hover {
+  background: var(--c-hover);
+}
+
+.link-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: var(--t-nav);
+  text-transform: uppercase;
+  letter-spacing: var(--track-wide);
+}
+
+.link-btn:hover {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
