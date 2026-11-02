@@ -83,6 +83,10 @@ class ChatAnswer(BaseModel):
     comparison: Optional[ComparisonTable] = None
     follow_up: Optional[str] = None
     source: Literal["llm", "template"] = "llm"
+    # The filters the search actually used: the shopper's own plus those inferred from the
+    # message ("under $300" -> max_price), after any relaxation. Shown as chips, so the
+    # shopper can see why the results look the way they do.
+    applied_filters: dict[str, Any] = Field(default_factory=dict)
     # Problems validation fixed or noticed (dropped ids, prices in text, ...).
     # Shown in debug and counted by the eval; never shown to shoppers.
     warnings: list[str] = Field(default_factory=list)

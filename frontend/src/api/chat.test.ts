@@ -71,10 +71,27 @@ describe("streamChat", () => {
     expect(err).toMatchObject({ status: 0, code: "network_error" });
   });
 
-  it("handles a non-JSON error page", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>Bad gateway</html>", { status: 502 })));
+  it("reports a proxy's non-JSON 5xx page as the server being unreachable", async () => {
+    for (const status of [500, 502, 504]) {
+      vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>Bad gateway</html>", { status })));
+      const err = await streamChat({ message: "q", history: [] }).catch((e) => e);
+      expect(err).toMatchObject({ status, code: "server_unreachable" });
+    }
+  });
+
+  it("keeps the API's own 500 error when it sent one", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      JSON.stringify({ error: { code: "internal_error", message: "Something went wrong.", request_id: "r5" } }),
+      { status: 500 },
+    )));
     const err = await streamChat({ message: "q", history: [] }).catch((e) => e);
-    expect(err).toMatchObject({ status: 502, code: "http_error" });
+    expect(err).toMatchObject({ code: "internal_error", requestId: "r5" });
+  });
+
+  it("reports other non-JSON errors by status", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("Not found", { status: 404 })));
+    const err = await streamChat({ message: "q", history: [] }).catch((e) => e);
+    expect(err).toMatchObject({ status: 404, code: "http_error" });
   });
 });
 

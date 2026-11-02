@@ -41,6 +41,8 @@ export interface ChatAnswer {
   comparison: ComparisonTable | null;
   follow_up: string | null;
   source: "llm" | "template";
+  /** Filters the search used: the shopper's plus those inferred from the message. */
+  applied_filters?: Record<string, unknown>;
   warnings: string[];
   timings_ms: Record<string, number>;
   debug: Record<string, unknown> | null;

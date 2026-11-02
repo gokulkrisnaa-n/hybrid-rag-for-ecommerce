@@ -1,6 +1,10 @@
 import { useEffect, useRef } from "react";
 
 import type { AssistantTurn, Turn } from "../state/conversation";
+import { ComparisonTable } from "./ComparisonTable";
+import { Feedback } from "./Feedback";
+import { FilterChips } from "./FilterChips";
+import { ProductCards } from "./ProductCards";
 import "./Thread.css";
 
 const STAGE_TEXT: Record<string, string> = {
@@ -9,16 +13,22 @@ const STAGE_TEXT: Record<string, string> = {
   writing: "Writing",
 };
 
-function formatPrice(value: string): string {
-  const n = Number(value);
-  return Number.isFinite(n) ? `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : value;
+interface AssistantProps {
+  turn: AssistantTurn;
+  busy: boolean;
+  feedbackOff: boolean;
+  onFollowUp: (text: string) => void;
+  onFeedbackOff: () => void;
 }
 
-function AssistantMessage({ turn }: { turn: AssistantTurn }) {
+function AssistantMessage({ turn, busy, feedbackOff, onFollowUp, onFeedbackOff }: AssistantProps) {
   const open = turn.status === "pending" || turn.status === "searching" || turn.status === "writing";
+  const a = turn.answer;
   return (
     <article className="msg msg--assistant" aria-busy={open}>
       <p className="label">Assistant</p>
+
+      {a && <FilterChips applied={a.applied_filters} />}
 
       {open && !turn.text && (
         <p className="msg__status" role="status">
@@ -41,19 +51,17 @@ function AssistantMessage({ turn }: { turn: AssistantTurn }) {
         </p>
       )}
 
-      {/* Plain list for now; product cards come next. */}
-      {turn.answer && turn.answer.products.length > 0 && (
-        <ul className="msg__products">
-          {turn.answer.products.map(({ product, reason }) => (
-            <li key={product.product_id}>
-              <a href={product.url} target="_blank" rel="noreferrer">
-                {product.title}
-              </a>
-              <span className="msg__price">{formatPrice(product.price_min)}</span>
-              <span className="msg__reason">{reason}</span>
-            </li>
-          ))}
-        </ul>
+      {a && a.products.length > 0 && <ProductCards products={a.products} />}
+      {a?.comparison && <ComparisonTable table={a.comparison} products={a.products} />}
+
+      {a?.follow_up && (
+        <button type="button" className="msg__followup" disabled={busy} onClick={() => onFollowUp(a.follow_up!)}>
+          {a.follow_up}
+        </button>
+      )}
+
+      {turn.status === "done" && turn.requestId && (
+        <Feedback requestId={turn.requestId} disabled={feedbackOff} onUnavailable={onFeedbackOff} />
       )}
     </article>
   );
@@ -61,17 +69,22 @@ function AssistantMessage({ turn }: { turn: AssistantTurn }) {
 
 interface Props {
   turns: Turn[];
+  busy: boolean;
+  feedbackOff: boolean;
+  onFollowUp: (text: string) => void;
+  onFeedbackOff: () => void;
 }
 
-export function Thread({ turns }: Props) {
+export function Thread({ turns, busy, feedbackOff, onFollowUp, onFeedbackOff }: Props) {
   const end = useRef<HTMLDivElement>(null);
   const last = turns[turns.length - 1];
   const lastText = last && last.role === "assistant" ? last.text.length : 0;
+  const lastStatus = last && last.role === "assistant" ? last.status : "";
 
-  // Follow the answer as it streams in.
+  // Follow the answer as it streams in, and once more when the cards arrive.
   useEffect(() => {
     end.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-  }, [turns.length, lastText]);
+  }, [turns.length, lastText, lastStatus]);
 
   return (
     <div className="thread">
@@ -82,7 +95,8 @@ export function Thread({ turns }: Props) {
             <p className="msg__question">{t.text}</p>
           </article>
         ) : (
-          <AssistantMessage key={t.id} turn={t} />
+          <AssistantMessage key={t.id} turn={t} busy={busy} feedbackOff={feedbackOff}
+                            onFollowUp={onFollowUp} onFeedbackOff={onFeedbackOff} />
         ),
       )}
       <div ref={end} />

@@ -1,0 +1,136 @@
+.cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px 16px;
+  margin-top: 20px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  color: inherit;
+  text-decoration: none;
+}
+
+.card__image {
+  position: relative;
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+  background: var(--c-image);
+}
+
+.card__image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  mix-blend-mode: multiply;   /* white product shots sit on the grey like the store's */
+  transition: transform 0.4s ease;
+}
+
+.card:hover .card__image img {
+  transform: scale(1.03);
+}
+
+.card__noimage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--t-label);
+  text-transform: uppercase;
+  letter-spacing: var(--track);
+  color: var(--c-faint);
+}
+
+.card__badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  padding: 3px 7px;
+  background: var(--c-bg);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: var(--track);
+}
+
+.card__badge--sale {
+  color: var(--c-sale);
+}
+
+.card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 12px;
+}
+
+.card__brand {
+  margin: 0;
+  font-size: var(--t-label);
+  text-transform: uppercase;
+  letter-spacing: var(--track);
+  color: var(--c-muted);
+}
+
+.card__title {
+  margin: 0;
+  font-family: var(--f-serif);
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+.card:hover .card__title {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.card__price {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin: 2px 0 0;
+  font-size: var(--t-body);
+}
+
+.card__now--sale {
+  color: var(--c-sale);
+}
+
+.card__was {
+  font-size: var(--t-small);
+  color: var(--c-muted);
+}
+
+.card__sizes {
+  margin: 0;
+  font-size: var(--t-label);
+  letter-spacing: 0.02em;
+  color: var(--c-muted);
+}
+
+.card__reason {
+  margin: 4px 0 0;
+  font-size: var(--t-small);
+  line-height: 1.5;
+  color: var(--c-ink-soft);
+}
+
+@media (max-width: 720px) {
+  .cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 380px) {
+  .cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card__image img {
+    transition: none;
+  }
+}

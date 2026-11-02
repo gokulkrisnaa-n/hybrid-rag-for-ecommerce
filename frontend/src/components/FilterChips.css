@@ -1,0 +1,23 @@
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.chips__chip {
+  padding: 4px 10px;
+  border: 1px solid var(--c-line);
+  font-size: var(--t-label);
+  text-transform: uppercase;
+  letter-spacing: var(--track);
+  color: var(--c-ink-soft);
+}
+
+/* Exclusions ("Not The North Face"): dashed, so they read as "left out" at a glance. */
+.chips__chip--negative {
+  border-style: dashed;
+  color: var(--c-muted);
+}

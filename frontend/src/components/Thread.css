@@ -3,6 +3,7 @@
   flex-direction: column;
   gap: 32px;
   padding: 40px 0 24px;
+  text-align: right;
 }
 
 .msg .label {
@@ -83,40 +84,35 @@
   color: var(--c-ink);
 }
 
-.msg__products {
-  margin: 16px 0 0;
-  padding: 0;
-  list-style: none;
-  border-top: 1px solid var(--c-line);
-}
-
-.msg__products li {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 2px 16px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--c-line);
-}
-
-.msg__products a {
-  font-family: var(--f-serif);
-  font-size: 15px;
-  text-decoration: none;
-}
-
-.msg__products a:hover {
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-.msg__price {
-  font-size: var(--t-body);
-}
-
-.msg__reason {
-  grid-column: 1 / -1;
+.msg__followup {
+  display: block;
+  margin-top: 20px;
+  padding: 10px 14px;
+  border: 1px solid var(--c-line);
+  border-radius: var(--radius);
+  background: var(--c-bg);
   font-size: var(--t-small);
+  color: var(--c-ink-soft);
+  text-align: left;
+  cursor: pointer;
+}
+
+.msg__followup::before {
+  content: "Ask next  →  ";
+  font-size: var(--t-label);
+  text-transform: uppercase;
+  letter-spacing: var(--track);
   color: var(--c-muted);
+}
+
+.msg__followup:hover:not(:disabled) {
+  border-color: var(--c-ink);
+  color: var(--c-ink);
+}
+
+.msg__followup:disabled {
+  color: var(--c-faint);
+  cursor: default;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -315,6 +315,30 @@ async def test_chat_stream_reports_progress_then_returns_the_validated_answer(st
     assert answer.timings_ms["first_token"] <= answer.timings_ms["total"]
 
 
+async def test_answer_carries_the_filters_the_search_used(streaming_turn):
+    """Explicit and inferred filters reach the shopper (filter chips), not only debug."""
+    from app.chat import service
+    from app.chat.service import chat_stream
+    from app.schemas.product_models import RetrievedProduct, SearchResult
+    from app.schemas.query_models import SearchFilters
+    from tests.test_generation import CARDS
+
+    async def search_with_plan(pool, message, filters, limit, history=None):
+        return SearchResult(mode="hybrid", results=[RetrievedProduct(product=c, score=1.0) for c in CARDS],
+                            timings_ms={"total": 5.0},
+                            debug={"qu": {"used": True, "inferred_filters": {"max_price": 300,
+                                                                             "exclude_brands": ["The North Face"]}}})
+    streaming_turn.setattr(service, "search", search_with_plan)
+    stream_client(streaming_turn, FakeStream(_draft_json()))
+
+    async def emit(e, d):
+        pass
+    answer = await chat_stream(None, "warm jacket under $300, not The North Face",
+                               filters=SearchFilters(on_sale_only=True), emit=emit)
+    assert answer.applied_filters == {"on_sale_only": True, "max_price": 300, "exclude_brands": ["The North Face"]}
+    assert answer.model_dump(mode="json")["applied_filters"]["max_price"] == 300
+
+
 async def test_chat_stream_falls_back_when_the_model_fails_mid_answer(streaming_turn):
     from app.chat.service import chat_stream
     from tests.test_retry import status_error

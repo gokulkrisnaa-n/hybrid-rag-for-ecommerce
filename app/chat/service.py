@@ -103,6 +103,7 @@ async def _turn(pool: AsyncConnectionPool, message: str, history: list[Turn] | N
     def finish(answer: ChatAnswer, **debug) -> ChatAnswer:
         timings["total"] = round((time.perf_counter() - started) * 1000, 1)
         answer.timings_ms = {**timings, **answer.timings_ms}
+        answer.applied_filters = applied
         answer.debug = {"qu": qu, "applied_filters": applied, "search_timings": res.timings_ms,
                         "retrieved": [r.product.product_id for r in res.results], **debug}
         return answer
