@@ -1,0 +1,127 @@
+.thread {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  padding: 40px 0 24px;
+}
+
+.msg .label {
+  margin: 0 0 8px;
+}
+
+/* The shopper's question reads like a product title: serif, larger. */
+.msg--user {
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--c-line);
+}
+
+.msg__question {
+  margin: 0;
+  font-family: var(--f-serif);
+  font-size: var(--t-title);
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.msg__text {
+  color: var(--c-ink-soft);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.msg__status {
+  margin: 0;
+  font-size: var(--t-label);
+  text-transform: uppercase;
+  letter-spacing: var(--track);
+  color: var(--c-muted);
+}
+
+.msg__dots::after {
+  content: "";
+  display: inline-block;
+  width: 1.5em;
+  text-align: left;
+  animation: dots 1.2s steps(4, end) infinite;
+}
+
+@keyframes dots {
+  0% { content: ""; }
+  25% { content: "."; }
+  50% { content: ".."; }
+  75% { content: "..."; }
+}
+
+.msg__caret {
+  display: inline-block;
+  width: 6px;
+  height: 14px;
+  margin-left: 2px;
+  vertical-align: -2px;
+  background: var(--c-ink);
+  animation: blink 1s steps(2, start) infinite;
+}
+
+@keyframes blink {
+  to { visibility: hidden; }
+}
+
+.msg__note {
+  margin: 8px 0 0;
+  font-size: var(--t-label);
+  text-transform: uppercase;
+  letter-spacing: var(--track);
+  color: var(--c-muted);
+}
+
+.msg__error {
+  margin: 8px 0 0;
+  padding: 12px 16px;
+  border-left: 2px solid var(--c-ink);
+  background: var(--c-hover);
+  color: var(--c-ink);
+}
+
+.msg__products {
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--c-line);
+}
+
+.msg__products li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--c-line);
+}
+
+.msg__products a {
+  font-family: var(--f-serif);
+  font-size: 15px;
+  text-decoration: none;
+}
+
+.msg__products a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.msg__price {
+  font-size: var(--t-body);
+}
+
+.msg__reason {
+  grid-column: 1 / -1;
+  font-size: var(--t-small);
+  color: var(--c-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .msg__dots::after,
+  .msg__caret {
+    animation: none;
+  }
+}
