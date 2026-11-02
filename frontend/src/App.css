@@ -4,6 +4,22 @@
   min-height: 100%;
 }
 
+/* Sidebar on the left (wide screens), the chat column beside it. */
+.app__body {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+}
+
+.app__chat {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - var(--header-h));
+  min-height: calc(100dvh - var(--header-h));
+}
+
 .app__main {
   flex: 1;
 }

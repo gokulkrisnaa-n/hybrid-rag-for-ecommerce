@@ -1,7 +1,7 @@
 .header {
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 40;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
@@ -27,16 +27,62 @@
   letter-spacing: var(--track-wide);
 }
 
-.header__tag {
+/* Wide screens always show the sidebar; narrow ones open it from here. */
+.header__history {
+  display: none;
+}
+
+.health {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-size: var(--t-label);
   text-transform: uppercase;
   letter-spacing: var(--track-wide);
   color: var(--c-muted);
 }
 
+.health__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--c-faint);
+}
+
+.health--ok .health__dot {
+  background: #2e7d4f;
+}
+
+.health--degraded .health__dot {
+  background: #b7791f;
+}
+
+.health--offline .health__dot {
+  background: var(--c-sale);
+}
+
+.health--offline,
+.health--degraded {
+  color: var(--c-ink);
+}
+
+@media (max-width: 959px) {
+  .header__history {
+    display: inline;
+  }
+}
+
 @media (max-width: 520px) {
   .header__title {
     font-size: 12px;
     letter-spacing: var(--track);
+  }
+
+  .header__side {
+    gap: 16px;
+  }
+
+  .health__text {
+    display: none;            /* the dot alone; the title attribute still explains it */
   }
 }

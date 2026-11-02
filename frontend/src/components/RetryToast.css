@@ -1,0 +1,9 @@
+.toast {
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--c-ink);
+  background: var(--c-bg);
+  font-size: var(--t-small);
+  color: var(--c-ink);
+  text-align: center;
+}

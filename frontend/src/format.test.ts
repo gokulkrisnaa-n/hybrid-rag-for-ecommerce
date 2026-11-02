@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ProductCard } from "./api/types";
-import { filterChips, formatPrice, priceView, shortId, sizesText } from "./format";
+import { filterChips, formatPrice, priceView, shortId, sizesText, timeAgo } from "./format";
 
 const card = (over: Partial<ProductCard>): ProductCard => ({
   product_id: 1, title: "T", brand: null, collaborator: null, model: null, colorway: null, category: null,
@@ -64,4 +64,13 @@ describe("filterChips", () => {
 it("shortens request ids", () => {
   expect(shortId("7f3a9c1e0b2d4e6f8a")).toBe("7f3a9c1e…");
   expect(shortId("abc")).toBe("abc");
+});
+
+it("describes how long ago something happened", () => {
+  const now = Date.parse("2026-11-02T15:00:00");
+  expect(timeAgo(now - 20_000, now)).toBe("Just now");
+  expect(timeAgo(now - 5 * 60_000, now)).toBe("5 min ago");
+  expect(timeAgo(now - 3 * 3_600_000, now)).toBe("3 h ago");
+  expect(timeAgo(now - 30 * 3_600_000, now)).toBe("Yesterday");
+  expect(timeAgo(Date.parse("2026-10-30T12:00:00"), now)).toBe("Oct 30");
 });
