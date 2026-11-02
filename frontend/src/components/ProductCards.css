@@ -14,7 +14,7 @@
 
 .card__image {
   position: relative;
-  aspect-ratio: 4 / 5;
+  aspect-ratio: 1 / 1;        /* the catalog's photos are square, on their own grey */
   overflow: hidden;
   background: var(--c-image);
 }
@@ -22,7 +22,7 @@
 .card__image img {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
   mix-blend-mode: multiply;   /* white product shots sit on the grey like the store's */
   transition: transform 0.4s ease;
 }

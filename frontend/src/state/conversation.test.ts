@@ -88,3 +88,24 @@ describe("buildHistory", () => {
     expect(h.map((t) => t.content)).toEqual(["q7", "a7", "q8", "a8"]);
   });
 });
+
+describe("retry", () => {
+  it("offers the last exchange when it failed or was stopped", async () => {
+    const { retryableTurn } = await import("./conversation");
+    let s = send(newConversation("s"), 1, "first");
+    s = reducer(s, { type: "answer", id: "a1", answer: answer("A1") });
+    expect(retryableTurn(s)).toBeNull();
+    s = send(s, 2, "second");
+    expect(retryableTurn(s)).toBeNull();                       // still open
+    s = reducer(s, { type: "error", id: "a2", code: "rate_limited", message: "x" });
+    expect(retryableTurn(s)).toEqual({ userId: "u2", assistantId: "a2", text: "second" });
+  });
+
+  it("removes turns and loads a saved conversation", () => {
+    let s = send(newConversation("s"), 1, "q");
+    s = reducer(s, { type: "remove", ids: ["u1", "a1"] });
+    expect(s.turns).toEqual([]);
+    const saved = send(newConversation("old"), 9, "saved question");
+    expect(reducer(s, { type: "load", conversation: saved })).toBe(saved);
+  });
+});

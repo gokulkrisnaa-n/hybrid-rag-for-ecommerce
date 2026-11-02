@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 
 import type { AssistantTurn, Turn } from "../state/conversation";
 import { ComparisonTable } from "./ComparisonTable";
@@ -16,12 +16,14 @@ const STAGE_TEXT: Record<string, string> = {
 interface AssistantProps {
   turn: AssistantTurn;
   busy: boolean;
+  /** Set on the last turn when it failed or was stopped. */
+  onRetry?: () => void;
   feedbackOff: boolean;
   onFollowUp: (text: string) => void;
   onFeedbackOff: () => void;
 }
 
-function AssistantMessage({ turn, busy, feedbackOff, onFollowUp, onFeedbackOff }: AssistantProps) {
+function AssistantMessage({ turn, busy, onRetry, feedbackOff, onFollowUp, onFeedbackOff }: AssistantProps) {
   const open = turn.status === "pending" || turn.status === "searching" || turn.status === "writing";
   const a = turn.answer;
   return (
@@ -51,6 +53,12 @@ function AssistantMessage({ turn, busy, feedbackOff, onFollowUp, onFeedbackOff }
         </p>
       )}
 
+      {onRetry && (
+        <button type="button" className="btn btn--outline msg__retry" onClick={onRetry}>
+          Retry
+        </button>
+      )}
+
       {a && a.products.length > 0 && <ProductCards products={a.products} />}
       {a?.comparison && <ComparisonTable table={a.comparison} products={a.products} />}
 
@@ -70,25 +78,27 @@ function AssistantMessage({ turn, busy, feedbackOff, onFollowUp, onFeedbackOff }
 interface Props {
   turns: Turn[];
   busy: boolean;
+  canRetry: boolean;
+  onRetry: () => void;
   feedbackOff: boolean;
   onFollowUp: (text: string) => void;
   onFeedbackOff: () => void;
 }
 
-export function Thread({ turns, busy, feedbackOff, onFollowUp, onFeedbackOff }: Props) {
-  const end = useRef<HTMLDivElement>(null);
+export function Thread({ turns, busy, canRetry, onRetry, feedbackOff, onFollowUp, onFeedbackOff }: Props) {
   const last = turns[turns.length - 1];
   const lastText = last && last.role === "assistant" ? last.text.length : 0;
   const lastStatus = last && last.role === "assistant" ? last.status : "";
 
-  // Follow the answer as it streams in, and once more when the cards arrive.
+  // Follow the answer as it streams in, and once more when the cards arrive. Scrolling the
+  // page to its very end keeps the last message above the sticky composer, not behind it.
   useEffect(() => {
-    end.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" });
   }, [turns.length, lastText, lastStatus]);
 
   return (
     <div className="thread">
-      {turns.map((t) =>
+      {turns.map((t, i) =>
         t.role === "user" ? (
           <article key={t.id} className="msg msg--user">
             <p className="label">You</p>
@@ -96,10 +106,10 @@ export function Thread({ turns, busy, feedbackOff, onFollowUp, onFeedbackOff }: 
           </article>
         ) : (
           <AssistantMessage key={t.id} turn={t} busy={busy} feedbackOff={feedbackOff}
+                            onRetry={canRetry && i === turns.length - 1 ? onRetry : undefined}
                             onFollowUp={onFollowUp} onFeedbackOff={onFeedbackOff} />
         ),
       )}
-      <div ref={end} />
     </div>
   );
 }

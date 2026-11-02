@@ -42,7 +42,9 @@ export type Action =
   | { type: "answer"; id: string; answer: ChatAnswer }
   | { type: "error"; id: string; code: string; message: string; requestId?: string | null }
   | { type: "stop"; id: string }
-  | { type: "reset"; sessionId: string };
+  | { type: "reset"; sessionId: string }
+  | { type: "load"; conversation: Conversation }
+  | { type: "remove"; ids: string[] };
 
 export const newConversation = (sessionId: string): Conversation => ({ sessionId, turns: [] });
 
@@ -53,7 +55,7 @@ function updateAssistant(state: Conversation, id: string, change: (t: AssistantT
   };
 }
 
-const isOpen = (t: AssistantTurn) => t.status === "pending" || t.status === "searching" || t.status === "writing";
+export const isOpen = (t: AssistantTurn) => t.status === "pending" || t.status === "searching" || t.status === "writing";
 
 export function reducer(state: Conversation, action: Action): Conversation {
   switch (action.type) {
@@ -93,6 +95,10 @@ export function reducer(state: Conversation, action: Action): Conversation {
       return updateAssistant(state, action.id, (t) => (isOpen(t) ? { ...t, status: "stopped" } : t));
     case "reset":
       return newConversation(action.sessionId);
+    case "load":
+      return action.conversation;
+    case "remove":
+      return { ...state, turns: state.turns.filter((t) => !action.ids.includes(t.id)) };
   }
 }
 
@@ -100,6 +106,19 @@ export function reducer(state: Conversation, action: Action): Conversation {
 export function openTurn(state: Conversation): AssistantTurn | null {
   const last = state.turns[state.turns.length - 1];
   return last && last.role === "assistant" && isOpen(last) ? last : null;
+}
+
+/**
+ * The last exchange, when its answer was stopped or failed: what Retry resends.
+ * Only the last one, so a retried question never jumps ahead of later turns.
+ */
+export function retryableTurn(state: Conversation): { userId: string; assistantId: string; text: string } | null {
+  const n = state.turns.length;
+  if (n < 2) return null;
+  const q = state.turns[n - 2];
+  const a = state.turns[n - 1];
+  if (q.role !== "user" || a.role !== "assistant") return null;
+  return a.status === "error" || a.status === "stopped" ? { userId: q.id, assistantId: a.id, text: q.text } : null;
 }
 
 /**

@@ -89,6 +89,12 @@
   color: var(--c-ink);
 }
 
+.msg__retry {
+  margin-top: 12px;
+  height: 34px;
+  padding: 0 18px;
+}
+
 .msg__followup {
   display: block;
   margin-top: 20px;
