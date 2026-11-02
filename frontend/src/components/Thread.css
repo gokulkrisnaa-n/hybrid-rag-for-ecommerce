@@ -3,24 +3,29 @@
   flex-direction: column;
   gap: 32px;
   padding: 40px 0 24px;
-  text-align: right;
 }
 
 .msg .label {
   margin: 0 0 8px;
 }
 
-/* The shopper's question reads like a product title: serif, larger. */
+/* The shopper's messages sit on the right, like a messaging app: a square grey
+   block, serif text like a product title. The assistant stays full width on the
+   left, since its cards and tables need the room. */
 .msg--user {
-  padding-bottom: 24px;
-  border-bottom: 1px solid var(--c-line);
+  align-self: flex-end;
+  max-width: min(80%, 560px);
+  text-align: right;
 }
 
 .msg__question {
   margin: 0;
+  padding: 12px 16px;
+  background: var(--c-hover);
   font-family: var(--f-serif);
-  font-size: var(--t-title);
-  line-height: 1.35;
+  font-size: 17px;
+  line-height: 1.4;
+  text-align: left;            /* right-aligned block, left-aligned lines read better */
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
