@@ -16,7 +16,7 @@ import pytest
 from app.query import search as search_mod
 from app.query import understanding
 from app.query.plan import QueryPlan
-from app.query.resolve import resolve
+from app.query.resolve import get_settings, resolve
 from app.query.vocabulary import Vocabulary
 from app.retrieval.filters import build_where
 from app.schemas.product_models import SearchResult
@@ -207,7 +207,7 @@ async def test_understand_calls_model_once_then_caches(monkeypatch):
     assert u2.cached and len(fake.calls) == 1
     call = fake.calls[0]
     assert call["text_format"] is QueryPlan and call["store"] is False
-    assert call["reasoning"] == {"effort": "low"}           # the default
+    assert call["reasoning"] == {"effort": get_settings().query_reasoning_effort}           # the configured default
     assert "<message>\ncozy hoodie\n</message>" in call["input"]
     assert "- apparel: hoodies, jackets" in call["instructions"]
 
