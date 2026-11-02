@@ -13,17 +13,20 @@ the request-context middleware writes its own access log, with request ids.
 Startup (lifespan) opens the database pool and warms what the first request
 would otherwise pay for: the catalog vocabulary and the OpenAI connection. The API
 refuses to start without a database rather than failing every request.
-Interactive docs: /docs.
+Interactive docs: /docs. When frontend/dist exists (npm run build), the chat UI is
+served at / by the same process: one origin, so the browser needs no CORS.
 """
 
 from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from pathlib import Path
+from typing import AsyncIterator, Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from psycopg_pool import PoolTimeout
 
 from app.api.errors import install_error_handlers
@@ -31,7 +34,7 @@ from app.api.middleware import RequestContextMiddleware
 from app.api.ratelimit import SlidingWindowLimiter
 from app.api.routes import chat, feedback, health, search
 from app.core import tracing
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.db import create_pool
 from app.core.llm import get_openai_client, warm_up
 from app.query.vocabulary import load_vocabulary
@@ -39,6 +42,7 @@ from app.query.vocabulary import load_vocabulary
 log = logging.getLogger("api")
 
 API_VERSION = "1.0.0"
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 @asynccontextmanager
@@ -75,6 +79,16 @@ def _configure_logging() -> None:
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
 
+def frontend_dir(s: Settings) -> Optional[Path]:
+    """The built UI's folder, if there is one to serve."""
+    if not s.frontend_dist:
+        return None
+    path = Path(s.frontend_dist)
+    if not path.is_absolute():
+        path = REPO_ROOT / path
+    return path if (path / "index.html").is_file() else None
+
+
 def create_app(*, use_lifespan: bool = True) -> FastAPI:
     """use_lifespan=False lets tests attach a fake pool to app.state instead of a database."""
     s = get_settings()
@@ -104,4 +118,11 @@ def create_app(*, use_lifespan: bool = True) -> FastAPI:
     app.include_router(search.router)
     app.include_router(chat.router)
     app.include_router(feedback.router)
+
+    # Last, so every API route above matches first. html=True serves index.html at /.
+    # Unknown paths still get the API's JSON 404 (the error handlers cover mounts too).
+    ui = frontend_dir(s)
+    if ui:
+        app.mount("/", StaticFiles(directory=ui, html=True), name="ui")
+        log.info("serving the chat UI from %s", ui)
     return app

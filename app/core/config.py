@@ -114,6 +114,10 @@ class Settings(BaseSettings):
     hnsw_iterative_scan: Literal["off", "relaxed_order", "strict_order"] = "relaxed_order"
 
     # --- API (app/api) -------------------------------------------------------------
+    # The built chat UI (cd frontend && npm run build). Served at / when the folder has an
+    # index.html, so one process serves both the UI and the API; ignored when missing (dev,
+    # where Vite serves the UI). Relative paths are from the repo root.
+    frontend_dist: Optional[str] = "frontend/dist"
     # Browser origins allowed to call the API. In .env as JSON: API_CORS_ORIGINS=["https://..."]
     api_cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
     # Lets a request ask for "debug": true (query plan, retrieval details). Turn off when

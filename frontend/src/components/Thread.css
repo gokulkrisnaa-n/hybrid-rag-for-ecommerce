@@ -9,6 +9,36 @@
   margin: 0 0 8px;
 }
 
+.msg__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.msg__inspect {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: var(--t-label);
+  text-transform: uppercase;
+  letter-spacing: var(--track);
+  color: var(--c-muted);
+  cursor: pointer;
+}
+
+.msg__inspect:hover,
+.msg__inspect[aria-pressed="true"] {
+  color: var(--c-ink);
+}
+
+/* The turn shown in the debug panel. */
+.msg--assistant.is-inspected {
+  margin-left: -14px;
+  padding-left: 12px;
+  border-left: 2px solid var(--c-ink);
+}
+
 /* The shopper's messages sit on the right, like a messaging app: a square grey
    block, serif text like a product title. The assistant stays full width on the
    left, since its cards and tables need the room. */

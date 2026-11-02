@@ -265,3 +265,30 @@ async def test_cors_allows_configured_origins_only(calls):
     assert r.status_code == 200 and r.headers["access-control-allow-origin"] == "http://localhost:5173"
     r = await call(app, "OPTIONS", "/v1/chat", headers={"Origin": "https://evil.example", **pre})
     assert "access-control-allow-origin" not in r.headers
+
+
+# --- the built UI ------------------------------------------------------------------------
+
+def _dist(tmp_path):
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "index.html").write_text("<!doctype html><title>UI</title>")
+    (tmp_path / "assets" / "app.js").write_text("console.log(1)")
+    return tmp_path
+
+
+async def test_the_built_ui_is_served_next_to_the_api(env, calls, tmp_path):
+    env.setenv("FRONTEND_DIST", str(_dist(tmp_path)))
+    app = make_app()
+    page = await call(app, "GET", "/")
+    assert page.status_code == 200 and "<title>UI</title>" in page.text
+    asset = await call(app, "GET", "/assets/app.js")
+    assert asset.status_code == 200 and "javascript" in asset.headers["content-type"]
+    # API routes still win, and unknown paths keep the API's JSON error format
+    assert (await call(app, "GET", "/health")).json()["status"] == "ok"
+    assert (await call(app, "POST", "/v1/chat", json={"message": "hoodie"})).status_code == 200
+    assert_error(await call(app, "GET", "/nope"), 404, "not_found")
+
+
+async def test_no_ui_is_served_without_a_build(env, tmp_path):
+    env.setenv("FRONTEND_DIST", str(tmp_path / "missing"))
+    assert_error(await call(make_app(), "GET", "/"), 404, "not_found")

@@ -23,8 +23,24 @@ export interface RetryNotice {
   max: number;
 }
 
+const DEBUG_KEY = "shopping-assistant.debug";
+
+function readDebugPref(): boolean {
+  try {
+    return window.localStorage.getItem(DEBUG_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function useChat() {
   const store = useMemo(() => createSessionStore(), []);
+  // Debug: ask the API for the query plan, timings and tokens with each answer.
+  // `debugAllowed` turns false for good once the server answers 403 debug_disabled.
+  const [debugOn, setDebugOnState] = useState(readDebugPref);
+  const [debugAllowed, setDebugAllowed] = useState(true);
+  const debugRef = useRef(debugOn && debugAllowed);
+  debugRef.current = debugOn && debugAllowed;
   const [conversation, dispatch] = useReducer(reducer, undefined, () => newConversation(newId()));
   const [sessions, setSessions] = useState<SessionSummary[]>(() => store.list());
   const [notice, setNotice] = useState<RetryNotice | null>(null);
@@ -53,11 +69,12 @@ export function useChat() {
 
     const ctrl = new AbortController();
     controller.current = ctrl;
+    let debug = debugRef.current;
     try {
       for (let attempt = 0; ; attempt++) {
         try {
           const answer: ChatAnswer = await streamChat(
-            { message, history, session_id: sessionId },
+            { message, history, session_id: sessionId, ...(debug ? { debug: true } : {}) },
             {
               onMeta: (requestId) => dispatch({ type: "meta", id, requestId }),
               onStatus: (stage) => dispatch({ type: "status", id, stage }),
@@ -72,6 +89,13 @@ export function useChat() {
           const err = e instanceof ApiError
             ? e
             : new ApiError(0, "client_error", "Something went wrong in the page. Please try again.");
+          // The server doesn't allow debug output: stop asking, and send this one again without it.
+          if (err.code === "debug_disabled" && debug) {
+            debug = false;
+            setDebugAllowed(false);
+            attempt--;
+            continue;
+          }
           // A 429 arrives before streaming starts, so nothing was shown yet: wait and retry.
           const wait = err.status === 429 ? retryDelaySeconds(err.retryAfterSeconds, attempt) : null;
           if (wait === null) {
@@ -135,8 +159,18 @@ export function useChat() {
     }
   }, [store]);
 
+  const setDebugOn = useCallback((on: boolean) => {
+    setDebugOnState(on);
+    try {
+      window.localStorage.setItem(DEBUG_KEY, on ? "1" : "0");
+    } catch {
+      // storage blocked: the setting lasts until the page closes
+    }
+  }, []);
+
   return {
     conversation, busy, notice, sessions, historyAvailable: store.available,
+    debugOn: debugOn && debugAllowed, debugAllowed, setDebugOn,
     canRetry: retryableTurn(conversation) !== null,
     send, stop, retry, newChat, openSession, deleteSession,
   };
