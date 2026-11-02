@@ -1,0 +1,53 @@
+.compare {
+  margin-top: 20px;
+  overflow-x: auto;
+  border-top: 1px solid var(--c-ink);
+}
+
+.compare table {
+  width: 100%;
+  min-width: 480px;
+  border-collapse: collapse;
+  font-size: var(--t-small);
+}
+
+.compare th,
+.compare td {
+  padding: 12px 12px 12px 0;
+  border-bottom: 1px solid var(--c-line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.compare thead th {
+  font-family: var(--f-serif);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+.compare thead a {
+  text-decoration: none;
+}
+
+.compare thead a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.compare tbody th {
+  width: 140px;
+  font-size: var(--t-label);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: var(--track);
+  color: var(--c-muted);
+}
+
+.compare td {
+  color: var(--c-ink-soft);
+}
+
+.compare__na {
+  color: var(--c-faint);
+}

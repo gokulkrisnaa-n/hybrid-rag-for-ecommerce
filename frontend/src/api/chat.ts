@@ -38,7 +38,8 @@ export function parseRetryAfter(value: string | null, now: number = Date.now()):
   return Number.isNaN(date) ? null : Math.max(0, (date - now) / 1000);
 }
 
-async function errorFromResponse(res: Response): Promise<ApiError> {
+/** Our JSON error if the API sent one; otherwise a status-based message. */
+export async function errorFromResponse(res: Response): Promise<ApiError> {
   const retryAfter = parseRetryAfter(res.headers.get("Retry-After"));
   try {
     const body = (await res.json()) as { error?: ErrorBody };
@@ -46,7 +47,12 @@ async function errorFromResponse(res: Response): Promise<ApiError> {
       return new ApiError(res.status, body.error.code, body.error.message, body.error.request_id, retryAfter);
     }
   } catch {
-    // not our JSON (a proxy's HTML page, say): fall through
+    // not our JSON: a proxy or gateway answered instead of the API
+  }
+  // The dev proxy answers 500 and a gateway 502/503/504 when the API is down or unreachable.
+  if (res.status >= 500) {
+    return new ApiError(res.status, "server_unreachable",
+      "Can't reach the server right now. Please try again in a moment.", null, retryAfter);
   }
   return new ApiError(res.status, "http_error", `The server answered ${res.status}.`, null, retryAfter);
 }
