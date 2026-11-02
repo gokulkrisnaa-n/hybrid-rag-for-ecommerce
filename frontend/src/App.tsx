@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Composer } from "./components/Composer";
+import { DebugPanel } from "./components/DebugPanel";
 import { EmptyState } from "./components/EmptyState";
 import { Header } from "./components/Header";
 import { RetryToast } from "./components/RetryToast";
 import { Sidebar } from "./components/Sidebar";
 import { Thread } from "./components/Thread";
+import type { AssistantTurn } from "./state/conversation";
 import { useChat } from "./state/useChat";
 import { useHealth } from "./state/useHealth";
 import "./App.css";
@@ -17,11 +19,24 @@ export default function App() {
   const [feedbackOff, setFeedbackOff] = useState(false);
   // The sidebar is always shown on wide screens; on narrow ones it's a drawer.
   const [historyOpen, setHistoryOpen] = useState(false);
+  // Debug mode: the turn shown in the panel; by default the latest answer.
+  const [inspectedId, setInspectedId] = useState<string | null>(null);
   const empty = chat.conversation.turns.length === 0;
+
+  const assistantTurns = chat.conversation.turns.filter((t): t is AssistantTurn => t.role === "assistant");
+  // A new question moves the panel to the new answer.
+  useEffect(() => setInspectedId(null), [assistantTurns.length, chat.conversation.sessionId]);
+  const inspected = assistantTurns.find((t) => t.id === inspectedId) ?? assistantTurns[assistantTurns.length - 1] ?? null;
 
   return (
     <div className="app">
-      <Header health={health} onToggleHistory={() => setHistoryOpen((o) => !o)} />
+      <Header
+        health={health}
+        onToggleHistory={() => setHistoryOpen((o) => !o)}
+        debugAllowed={chat.debugAllowed}
+        debugOn={chat.debugOn}
+        onToggleDebug={() => chat.setDebugOn(!chat.debugOn)}
+      />
       <div className="app__body">
         <Sidebar
           open={historyOpen}
@@ -47,6 +62,8 @@ export default function App() {
                   feedbackOff={feedbackOff}
                   onFollowUp={chat.send}
                   onFeedbackOff={() => setFeedbackOff(true)}
+                  inspectedId={chat.debugOn ? inspected?.id ?? null : null}
+                  onInspect={chat.debugOn ? setInspectedId : undefined}
                 />
               )}
             </div>
@@ -61,6 +78,7 @@ export default function App() {
             </div>
           </footer>
         </div>
+        {chat.debugOn && <DebugPanel turn={inspected} onClose={() => chat.setDebugOn(false)} />}
       </div>
     </div>
   );

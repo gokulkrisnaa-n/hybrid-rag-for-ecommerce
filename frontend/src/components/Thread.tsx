@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 
+import { hasDebug } from "../debug";
 import type { AssistantTurn, Turn } from "../state/conversation";
 import { ComparisonTable } from "./ComparisonTable";
 import { Feedback } from "./Feedback";
@@ -21,14 +22,25 @@ interface AssistantProps {
   feedbackOff: boolean;
   onFollowUp: (text: string) => void;
   onFeedbackOff: () => void;
+  /** Debug mode: show this turn's details in the panel. */
+  inspected?: boolean;
+  onInspect?: () => void;
 }
 
-function AssistantMessage({ turn, busy, onRetry, feedbackOff, onFollowUp, onFeedbackOff }: AssistantProps) {
+function AssistantMessage({ turn, busy, onRetry, feedbackOff, onFollowUp, onFeedbackOff, inspected,
+                            onInspect }: AssistantProps) {
   const open = turn.status === "pending" || turn.status === "searching" || turn.status === "writing";
   const a = turn.answer;
   return (
-    <article className="msg msg--assistant" aria-busy={open}>
-      <p className="label">Assistant</p>
+    <article className={`msg msg--assistant${inspected ? " is-inspected" : ""}`} aria-busy={open}>
+      <div className="msg__head">
+        <p className="label">Assistant</p>
+        {onInspect && hasDebug(a) && (
+          <button type="button" className="msg__inspect" onClick={onInspect} aria-pressed={inspected}>
+            {inspected ? "Showing details" : "Details"}
+          </button>
+        )}
+      </div>
 
       {a && <FilterChips applied={a.applied_filters} />}
 
@@ -83,9 +95,12 @@ interface Props {
   feedbackOff: boolean;
   onFollowUp: (text: string) => void;
   onFeedbackOff: () => void;
+  inspectedId?: string | null;
+  onInspect?: (id: string) => void;
 }
 
-export function Thread({ turns, busy, canRetry, onRetry, feedbackOff, onFollowUp, onFeedbackOff }: Props) {
+export function Thread({ turns, busy, canRetry, onRetry, feedbackOff, onFollowUp, onFeedbackOff, inspectedId,
+                         onInspect }: Props) {
   const last = turns[turns.length - 1];
   const lastText = last && last.role === "assistant" ? last.text.length : 0;
   const lastStatus = last && last.role === "assistant" ? last.status : "";
@@ -107,7 +122,9 @@ export function Thread({ turns, busy, canRetry, onRetry, feedbackOff, onFollowUp
         ) : (
           <AssistantMessage key={t.id} turn={t} busy={busy} feedbackOff={feedbackOff}
                             onRetry={canRetry && i === turns.length - 1 ? onRetry : undefined}
-                            onFollowUp={onFollowUp} onFeedbackOff={onFeedbackOff} />
+                            onFollowUp={onFollowUp} onFeedbackOff={onFeedbackOff}
+                            inspected={inspectedId === t.id}
+                            onInspect={onInspect ? () => onInspect(t.id) : undefined} />
         ),
       )}
     </div>

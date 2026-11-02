@@ -32,6 +32,16 @@
   display: none;
 }
 
+.header__debug {
+  color: var(--c-muted);
+}
+
+.header__debug[aria-pressed="true"] {
+  color: var(--c-ink);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
 .health {
   display: inline-flex;
   align-items: center;
@@ -82,7 +92,8 @@
     gap: 16px;
   }
 
-  .health__text {
+  .health__text,
+  .header__debug {
     display: none;            /* the dot alone; the title attribute still explains it */
   }
 }
