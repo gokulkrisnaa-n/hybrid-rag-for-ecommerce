@@ -25,7 +25,7 @@ export function Header({ health, onToggleHistory, debugAllowed, debugOn, onToggl
           History
         </button>
       </nav>
-      <div className="header__title">Shopping Assistant</div>
+      <div className="header__title">AI Shopping Assistant</div>
       <div className="header__side header__side--right">
         {debugAllowed && (
           <button type="button" className="link-btn header__debug" aria-pressed={debugOn} onClick={onToggleDebug}
