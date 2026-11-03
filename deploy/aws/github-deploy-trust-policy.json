@@ -11,7 +11,7 @@
       "Condition": {
         "StringEquals": {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub": "repo:gokulkrisnaa-n/hybrid-rag-for-ecommerce:environment:production"
+          "token.actions.githubusercontent.com:sub": "repo:gokulkrisnaa-n@200173395/hybrid-rag-for-ecommerce@1411404265:environment:production"
         }
       }
     }
