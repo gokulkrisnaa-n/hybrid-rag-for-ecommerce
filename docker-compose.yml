@@ -13,6 +13,9 @@ services:
     image: paradedb/paradedb:0.26.1
     container_name: kith-db
     env_file: .env
+    # Docker gives containers 64 MB of shared memory; Postgres's parallel index builds
+    # use it, and the HNSW vector index needs ~120 MB (restore fails without this).
+    shm_size: 256mb
     ports:
       - "5433:5432"                   # 5433 on local machine; 5432 is local Postgres
     volumes:
