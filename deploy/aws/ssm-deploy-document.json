@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "2.2",
+  "description": "Deploy the shopping assistant: pull main, rebuild, restart, smoke test (deploy/deploy.sh). The only command GitHub Actions may run on the server.",
+  "mainSteps": [
+    {
+      "action": "aws:runShellScript",
+      "name": "deploy",
+      "inputs": {
+        "timeoutSeconds": "1200",
+        "runCommand": [
+          "sudo -iu ubuntu bash -c 'cd ~/hybrid-rag-for-ecommerce && deploy/deploy.sh'"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,79 @@
+# Deploys main to the EC2 server once CI has passed on it (or on demand).
+#
+# No SSH and no stored AWS keys: GitHub proves who it is to AWS with a short-lived
+# OIDC token, assumes a role that may only send ONE command (the KithDeploy SSM
+# document) to ONE server, and AWS Systems Manager runs deploy/deploy.sh there.
+# Setup: the "Automatic deploys" section of the AWS deployment guide.
+#
+# Needs, in GitHub → Settings → Environments → production → Variables:
+#   AWS_DEPLOY_ROLE_ARN   arn:aws:iam::<account>:role/kith-github-deploy
+#   AWS_REGION            us-east-2
+#   EC2_INSTANCE_ID       i-0123456789abcdef0
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+# One deploy at a time; a second waits instead of interrupting the first.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  id-token: write      # the OIDC token AWS checks
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to EC2
+    # Only after a successful CI run on a push to main (not a pull request), or by hand.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 25
+    steps:
+      - name: Get short-lived AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Run deploy/deploy.sh on the server
+        env:
+          INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+          COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          set -euo pipefail
+          id=$(aws ssm send-command \
+                 --document-name KithDeploy \
+                 --instance-ids "$INSTANCE_ID" \
+                 --comment "deploy ${COMMIT:0:7}" \
+                 --query Command.CommandId --output text)
+          echo "Systems Manager command: $id"
+
+          status=Pending
+          for _ in $(seq 1 120); do          # up to 20 minutes
+            sleep 10
+            status=$(aws ssm get-command-invocation --command-id "$id" --instance-id "$INSTANCE_ID" \
+                       --query Status --output text 2>/dev/null || echo Pending)
+            case "$status" in Success|Failed|Cancelled|TimedOut) break ;; esac
+          done
+
+          echo "::group::Output from the server"
+          aws ssm get-command-invocation --command-id "$id" --instance-id "$INSTANCE_ID" \
+            --query StandardOutputContent --output text
+          echo "::endgroup::"
+          errors=$(aws ssm get-command-invocation --command-id "$id" --instance-id "$INSTANCE_ID" \
+                     --query StandardErrorContent --output text)
+          if [ -n "$errors" ] && [ "$errors" != "None" ]; then
+            echo "::group::Errors from the server"; echo "$errors"; echo "::endgroup::"
+          fi
+
+          echo "Deploy finished with status: $status"
+          [ "$status" = Success ]
