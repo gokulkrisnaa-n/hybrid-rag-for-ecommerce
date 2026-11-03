@@ -1,0 +1,16 @@
+# HTTPS in front of the app. Caddy gets and renews the certificate for
+# SITE_ADDRESS by itself (port 80 must be reachable from the internet).
+
+{$SITE_ADDRESS} {
+	reverse_proxy app:8000 {
+		# Send streamed answers (SSE) to the browser as they are written.
+		flush_interval -1
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}
