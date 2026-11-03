@@ -31,7 +31,9 @@ if [ "$app_was_running" = yes ]; then
 fi
 
 echo "→ recreating an empty database"
-in_db 'dropdb -U "$POSTGRES_USER" --if-exists --force "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"' < /dev/null
+# From template0, not the default template1: the ParadeDB image installs its extensions
+# (and their schemas, e.g. "paradedb") into template1, and the dump creates them itself.
+in_db 'dropdb -U "$POSTGRES_USER" --if-exists --force "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" -T template0 "$POSTGRES_DB"' < /dev/null
 
 # Custom-format dumps start with the bytes "PGDMP".
 if [ "$(head -c 5 "$DUMP")" = "PGDMP" ]; then
