@@ -1,0 +1,39 @@
+# Only what the image needs goes to the build: smaller context, faster builds,
+# and no secrets or local data inside an image.
+
+# Secrets
+.env
+.env.*
+!.env.example
+**/.env.local
+*.pem
+*.key
+secrets/
+
+# Local environments, build output and caches
+.venv/
+venv/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Not needed at runtime
+.git/
+.github/
+backups/
+data/
+pgdata/
+evals/
+tests/
+db/
+scripts/
+*.md
+.DS_Store
+.vscode/
+.idea/

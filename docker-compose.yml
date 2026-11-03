@@ -1,3 +1,13 @@
+# The whole app on one machine:
+#
+#   docker compose up -d --build               # database + app on http://localhost:8000
+#   scripts/restore_db.sh backups/<dump>       # first time: load the catalog
+#   scripts/smoke_test.sh                      # check it works end to end
+#   docker compose down                        # stop (the data stays in the pgdata volume)
+#
+# Local development without Docker still works as before: only `db` is needed,
+# reached from your machine on localhost:5433 (DATABASE_URL in .env).
+
 services:
   db:
     image: paradedb/paradedb:0.26.1
@@ -7,11 +17,36 @@ services:
       - "5433:5432"                   # 5433 on local machine; 5432 is local Postgres
     volumes:
       - pgdata:/var/lib/postgresql/
+      # Runs only when the volume is empty (first start). schema.sql already includes
+      # every migration in db/migrations/.
       - ./db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       retries: 10
+
+  app:
+    build:
+      context: .
+      args:
+        # Optional: set it in .env to link the debug panel to Langfuse traces.
+        VITE_LANGFUSE_PROJECT_URL: ${VITE_LANGFUSE_PROJECT_URL:-}
+    image: kith-rag-app:local
+    container_name: kith-app
+    env_file: .env                    # OPENAI_API_KEY, Langfuse keys, API_* settings
+    environment:
+      # Inside Docker the database is the `db` service on 5432, not localhost:5433.
+      # libpq key=value form rather than a URL: a quoted password may contain @ : / #
+      # (in a URL they'd need percent-encoding). Only ' and \ aren't allowed in it.
+      DATABASE_URL: "host=db port=5432 dbname=${POSTGRES_DB} user=${POSTGRES_USER} password='${POSTGRES_PASSWORD}'"
+      TRACING_ENVIRONMENT: docker     # keeps these traces apart in Langfuse
+      API_DEBUG_ENABLED: "true"       # the debug panel is part of the demo
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   pgdata:
