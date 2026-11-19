@@ -7,6 +7,7 @@
 #   scripts/bench_setup.sh index paradedb [opts]   0.27: BM25 + vector in ONE ParadeDB index,
 #                                                  HNSW dropped                         (variant C)
 #   scripts/bench_setup.sh status                  versions, indexes and their sizes
+#   scripts/bench_setup.sh explain                 0.27 query plans: is the vector search in the index?
 #   scripts/bench_setup.sh down                    stop (data kept; `docker compose -f
 #                                                  docker-compose.bench.yml down -v` deletes it)
 #
@@ -35,6 +36,8 @@ compose() { docker compose -f "$COMPOSE_FILE" "$@"; }
 in_db() { local svc=$1; shift; compose exec -T "$svc" sh -c "$*"; }
 
 # psql in a bench container; SQL comes on stdin, extra psql flags as arguments.
+# The flags go through `sh -c` as one string, so keep them to simple ones like -tA or -q
+# (no quoted values: do formatting in the SQL instead).
 psql_in() { local svc=$1; shift; in_db "$svc" 'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" '"$*"; }
 
 # One value from a query.
@@ -65,7 +68,8 @@ BM25_COLUMNS="
 timed_build() {
   local svc=$1 variant=$2 index=$3 statement=$4 out ms secs bytes
   echo "   building $index …"
-  out=$(printf '\\timing on\n%s\n' "$statement" | psql_in "$svc")
+  # ParadeDB prints an ivf_build NOTICE per index segment; warnings and errors still show.
+  out=$(printf 'SET client_min_messages = warning;\n\\timing on\n%s\n' "$statement" | psql_in "$svc")
   ms=$(printf '%s\n' "$out" | sed -n 's/^Time: \([0-9.]*\) ms.*/\1/p' | tail -1)
   secs=$(awk -v ms="${ms:-0}" 'BEGIN { printf "%.1f", ms / 1000 }')
   bytes=$(scalar "$svc" "SELECT pg_relation_size('clean.${index}')")
@@ -80,6 +84,7 @@ timed_build() {
 
 drop_indexes() {
   psql_in "$1" -q <<'SQL'
+SET client_min_messages = warning;
 DROP INDEX IF EXISTS clean.products_search_idx;
 DROP INDEX IF EXISTS clean.products_embedding_hnsw_idx;
 SQL
@@ -162,19 +167,54 @@ cmd_index() {
   cmd_status
 }
 
+# Query plans on pdb027 for the three query shapes the benchmark needs. With the native
+# index (after `index paradedb`), each should show "Custom Scan (ParadeDB Base Scan)" with
+# "Exec Method: TopKScanExecState"; a filter inside "Tantivy Query" ran in the index.
+cmd_explain() {
+  psql_in pdb027 -q <<'SQL'
+SET client_min_messages = warning;
+-- A real product's vector and category, so the plans use realistic values.
+SELECT embedding AS v, category AS c
+  FROM clean.products WHERE embedding IS NOT NULL AND category IS NOT NULL
+ ORDER BY product_id LIMIT 1 \gset
+\echo
+\echo '== 1. unfiltered: pdb.all() + ORDER BY distance + LIMIT'
+EXPLAIN (COSTS OFF)
+SELECT product_id FROM clean.products
+ WHERE product_id @@@ pdb.all()
+ ORDER BY embedding <=> :'v'::vector, product_id
+ LIMIT 10;
+\echo
+\echo '== 2. filter with a ParadeDB operator (category === ...)'
+EXPLAIN (COSTS OFF)
+SELECT product_id FROM clean.products
+ WHERE category === :'c'
+ ORDER BY embedding <=> :'v'::vector, product_id
+ LIMIT 10;
+\echo
+\echo '== 3. plain SQL filters on indexed columns (what filters.py writes today)'
+EXPLAIN (COSTS OFF)
+SELECT product_id FROM clean.products
+ WHERE product_id @@@ pdb.all()
+   AND is_active AND in_stock AND price_min <= 200
+ ORDER BY embedding <=> :'v'::vector, product_id
+ LIMIT 10;
+SQL
+}
+
 cmd_status() {
   local svc
   for svc in pdb026 pdb027; do
     echo
     echo "== $svc =="
-    psql_in "$svc" -tA -F ' | ' <<'SQL'
+    psql_in "$svc" -tA <<'SQL'
 SELECT 'postgres ' || current_setting('server_version');
 SELECT 'extension ' || extname || ' ' || extversion FROM pg_extension
  WHERE extname IN ('pg_search', 'vector') ORDER BY extname;
 SELECT 'products ' || count(*) FILTER (WHERE is_active) || ' active, '
        || count(embedding) FILTER (WHERE is_active) || ' with embeddings'
   FROM clean.products;
-SELECT 'index ' || c.relname, am.amname, pg_size_pretty(pg_relation_size(c.oid))
+SELECT 'index ' || c.relname || ' (' || am.amname || ') ' || pg_size_pretty(pg_relation_size(c.oid))
   FROM pg_index i
   JOIN pg_class c ON c.oid = i.indexrelid
   JOIN pg_am am ON am.oid = c.relam
@@ -190,9 +230,10 @@ case "${1:-}" in
   restore) shift; cmd_restore "$@" ;;
   index)   shift; cmd_index "$@" ;;
   status)  cmd_status ;;
+  explain) cmd_explain ;;
   down)    compose down ;;
   *)
-    sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
     exit 1
     ;;
 esac
