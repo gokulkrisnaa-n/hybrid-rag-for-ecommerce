@@ -1,0 +1,57 @@
+# Benchmark databases: ParadeDB 0.26.1 (what production runs) next to 0.27.0, which
+# adds a native vector index. A separate compose project ("kith-bench") with its own
+# volumes and ports: the app's database (kith-db, port 5433) is never touched.
+#
+#   docker compose -f docker-compose.bench.yml up -d --wait
+#   scripts/bench_setup.sh restore backups/<dump>      # same catalog into both
+#   scripts/bench_setup.sh index paradedb              # switch 0.27 to the native vector index
+#   docker compose -f docker-compose.bench.yml down -v # done: delete the bench data
+#
+# Both images are pinned to Postgres 18, the major version production runs (the plain
+# 0.26.1 tag is the pg18 build), so the only thing that differs between them is ParadeDB.
+#
+# Server settings are the same for both and larger than the image defaults: the whole
+# catalog (about 25K rows plus ~75 MB of vectors) fits in shared_buffers, so latency
+# measures the indexes rather than reads from disk.
+
+x-bench-db: &bench-db
+  env_file: .env                      # POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB, as for the app
+  # Parallel index builds use shared memory; Docker's 64 MB default is too small.
+  shm_size: 1gb
+  command:
+    - postgres
+    - -c
+    - shared_buffers=512MB
+    - -c
+    - maintenance_work_mem=512MB
+    - -c
+    - effective_cache_size=1GB
+  healthcheck:
+    test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+    interval: 5s
+    retries: 20
+
+name: kith-bench
+
+services:
+  pdb026:
+    <<: *bench-db
+    image: paradedb/paradedb:0.26.1-pg18
+    container_name: kith-bench-pdb026
+    ports:
+      - "127.0.0.1:5434:5432"         # variant A
+    volumes:
+      - pdb026data:/var/lib/postgresql/
+
+  pdb027:
+    <<: *bench-db
+    image: paradedb/paradedb:0.27.0-pg18
+    container_name: kith-bench-pdb027
+    ports:
+      - "127.0.0.1:5435:5432"         # variants B-E
+    volumes:
+      - pdb027data:/var/lib/postgresql/
+
+volumes:
+  pdb026data:
+  pdb027data:

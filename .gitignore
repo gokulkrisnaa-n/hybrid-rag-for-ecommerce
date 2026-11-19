@@ -39,6 +39,7 @@ htmlcov/
 data/
 *.jsonl
 !evals/*.jsonl
+!evals/bench/*.jsonl
 *.parquet
 *.csv
 dumps/
@@ -69,4 +70,7 @@ docker-compose.override.yml
 *~
 .DS_Store
 Thumbs.db
-desktop.inibackups/
+desktop.ini
+
+# Database dumps (catalog data; restore with scripts/restore_db.sh)
+backups/
