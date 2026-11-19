@@ -2,3 +2,4 @@ built_at	server	pg_search	variant	index	seconds	bytes
 2026-11-19T20:15:18Z	pdb027	0.27.0	paradedb-vector	products_search_idx	1.1	97689600
 2026-11-19T20:15:26Z	pdb027	0.27.0	pgvector-hnsw	products_search_idx	0.1	9609216
 2026-11-19T20:15:28Z	pdb027	0.27.0	pgvector-hnsw	products_embedding_hnsw_idx	1.1	102408192
+2026-11-19T20:22:10Z	pdb027	0.27.0	paradedb-vector	products_search_idx	1.1	97689600

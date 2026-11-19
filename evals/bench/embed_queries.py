@@ -1,7 +1,7 @@
 """
 Embed the eval queries once, so every benchmark variant searches with the same vectors.
 
-    python -m evals.bench.embed_queries            # writes evals/bench/data/query_vectors.jsonl
+    python -m evals.bench.embed_queries            # writes evals/bench/query_vectors.jsonl
     python -m evals.bench.embed_queries --check    # is the file up to date with ground_truth.jsonl?
 
 Why a file instead of embedding during the run:
@@ -35,7 +35,7 @@ from app.core import llm
 from app.core.config import get_settings
 from evals.dataset import DEFAULT_PATH, EvalCase, load_cases
 
-VECTORS_PATH = Path(__file__).parent / "data" / "query_vectors.jsonl"
+VECTORS_PATH = Path(__file__).parent / "query_vectors.jsonl"
 
 
 class StaleVectorsError(Exception):
