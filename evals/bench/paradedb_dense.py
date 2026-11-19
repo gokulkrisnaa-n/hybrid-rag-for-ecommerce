@@ -13,9 +13,10 @@ ranked hits), so hybrid search can run on either. The SQL differs in three ways:
 The filters are the app's own (app/retrieval/filters.build_where), unchanged:
 `bench_setup.sh explain` showed plain SQL predicates on indexed columns
 (is_active, in_stock, price_min <= x) pushed into the same index scan as Tantivy
-terms and ranges. Whether EVERY filter we use is pushed down is what
-`probe_pushdown` checks. A filter that isn't shows up in the plan as a Postgres
-"Filter:" line, i.e. applied after the index already picked its top k.
+terms and ranges. A predicate the index can't answer (a column not in it, or an
+expression like lower(brand)) is still pushed into ParadeDB's scan since 0.17, but
+checked row by row against the table: correct results, more work. `probe_pushdown`
+shows which clause each filter becomes inside the scan.
 
 `embedding IS NOT NULL` is left out (pgvector's query has it): every product in
 the catalog has an embedding, and the condition would be one more thing to push down.
@@ -23,6 +24,7 @@ the catalog has an embedding, and the condition would be one more thing to push 
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -94,8 +96,32 @@ class Plan:
 
     @property
     def post_filter(self) -> str | None:
-        """A predicate Postgres applies after the scan ("Filter: ..."), if any."""
-        return next((line.strip() for line in self.lines if line.strip().startswith("Filter:")), None)
+        """A predicate applied outside the index ("Filter: ...", "Heap Filter: ..."), if any."""
+        return next((line.strip() for line in self.lines
+                     if "Filter:" in line and not line.strip().startswith("Tantivy Query")), None)
+
+    @property
+    def access(self) -> str:
+        """How the rows are found: ParadeDB's Top K scan, pgvector's HNSW, or reading every row."""
+        text = self.text()
+        if self.top_k:
+            return "ParadeDB Top K"
+        if "hnsw" in text:
+            return "HNSW index"
+        if "Seq Scan" in text:
+            return "seq scan (exact)"
+        return "other"
+
+    def tantivy_clauses(self) -> list[str]:
+        """The clauses of the query ParadeDB runs, one compact JSON string each."""
+        if not self.tantivy_query:
+            return []
+        try:
+            q = json.loads(self.tantivy_query)
+        except ValueError:
+            return [self.tantivy_query]
+        must = q.get("boolean", {}).get("must") if isinstance(q, dict) else None
+        return [json.dumps(c, separators=(",", ":")) for c in (must if must is not None else [q])]
 
     @property
     def tantivy_query(self) -> str | None:
@@ -107,8 +133,8 @@ class Plan:
         if not self.top_k:
             return "no Top K scan (Postgres sorts)"
         if self.post_filter:
-            return "Top K, then filtered by Postgres"
-        return "in the index"
+            return "Top K, then filtered outside the index"
+        return "pushed into the scan"
 
     def text(self) -> str:
         return "\n".join(self.lines)
@@ -144,6 +170,16 @@ def probe_filters(subcategory: str | None = None) -> dict[str, SearchFilters]:
 class Pushdown:
     filter: str
     plan: Plan
+    added: list[str]           # clauses this filter added to the default query
+
+    @staticmethod
+    def kind(clause: str) -> str:
+        """'term' / 'range' / ... are index lookups; anything else is named as ParadeDB names it."""
+        try:
+            key = next(iter(json.loads(clause)))
+        except (ValueError, StopIteration, TypeError):
+            return "?"
+        return key
 
 
 async def probe_pushdown(conn: AsyncConnection, query_vec: list[float], k: int) -> list[Pushdown]:
@@ -152,8 +188,13 @@ async def probe_pushdown(conn: AsyncConnection, query_vec: list[float], k: int) 
         "SELECT subcategory FROM clean.products WHERE subcategory IS NOT NULL "
         "GROUP BY subcategory ORDER BY count(*) DESC LIMIT 1")
     row = await cur.fetchone()
-    out = []
+    out: list[Pushdown] = []
+    baseline: set[str] = set()
     for name, filters in probe_filters(row["subcategory"] if row else None).items():
         query, params = dense_query(query_vec, filters, k)
-        out.append(Pushdown(name, await explain(conn, query, params)))
+        plan = await explain(conn, query, params)
+        clauses = plan.tantivy_clauses()
+        if not out:
+            baseline = set(clauses)          # the first shape is the default filter set
+        out.append(Pushdown(name, plan, [c for c in clauses if c not in baseline]))
     return out

@@ -150,6 +150,7 @@ class EngineResult:
     ids: dict[tuple[str, str], list[int]] = field(default_factory=dict)       # (filter set, case) -> ranked ids
     ms: dict[tuple[str, str], list[float]] = field(default_factory=dict)      # (filter set, case) -> timings
     hybrid: dict[str, list[int]] = field(default_factory=dict)                # case -> hybrid top k
+    plan: Plan | None = None                                                   # first query's plan
 
 
 def progress(msg: str) -> None:
@@ -164,6 +165,9 @@ async def measure(engine: Engine, pool: AsyncConnectionPool, cases: list[EvalCas
     async with pool.connection() as conn:
         await engine.configure(conn)
         try:
+            first = cases[0]
+            query, params = engine.query(vectors[first.id], first.filters, kc)
+            res.plan = await explain(conn, query, params)
             for name, filters in sets:
                 for case in cases:
                     res.ids[(name, case.id)] = await engine.run(conn, vectors[case.id], filters or case.filters, kc)
@@ -267,8 +271,10 @@ class OneQueryResult:
     ids: dict[str, list[int]] = field(default_factory=dict)          # case -> fused top k (one statement)
     two_ids: dict[str, list[int]] = field(default_factory=dict)      # case -> same fusion, two queries + Python
     one_ms: dict[str, list[float]] = field(default_factory=dict)
+    serial_ms: dict[str, list[float]] = field(default_factory=dict)  # one statement, no parallel workers
     two_ms: dict[str, list[float]] = field(default_factory=dict)
     plan: Plan | None = None
+    serial_plan: Plan | None = None
 
 
 async def bench_one_query(pool: AsyncConnectionPool, cases: list[EvalCase], vectors: dict[str, list[float]],
@@ -315,6 +321,21 @@ async def bench_one_query(pool: AsyncConnectionPool, cases: list[EvalCase], vect
                 start = time.perf_counter()
                 await two_queries(case)
                 out.two_ms.setdefault(case.id, []).append((time.perf_counter() - start) * 1000)
+
+        # The BM25 branch may start parallel workers for a 50-row top k; time it without them too.
+        await conn.execute("SET max_parallel_workers_per_gather = 0")
+        try:
+            out.serial_plan = await explain(conn, query, params)
+            for case in cases:
+                await single(conn, case)                       # warm-up
+            for rep in range(1, reps + 1):
+                progress(f"E  one statement, no parallel workers: pass {rep}/{reps}")
+                for case in cases:
+                    start = time.perf_counter()
+                    await single(conn, case)
+                    out.serial_ms.setdefault(case.id, []).append((time.perf_counter() - start) * 1000)
+        finally:
+            await conn.execute("RESET max_parallel_workers_per_gather")
     return out
 
 
@@ -419,17 +440,20 @@ def report(args, cases: list[EvalCase], facts: dict, sel: dict[str, int], result
         f"returned. Latency is the vector query alone, over {len(cases)} queries x {args.reps} passes, "
         "with each case's own filters.",
         "",
-        f"| Configuration | Recall@{k} vs exact | Recall@{kc} vs exact | p50 ms | p95 ms | mean ms |",
-        "|---|---|---|---|---|---|",
+        f"| Configuration | Plan | Recall@{k} vs exact | Recall@{kc} vs exact | p50 ms | p95 ms | mean ms |",
+        "|---|---|---|---|---|---|---|",
     ]
     for r in results:
         r10 = [overlap(r.ids[(EVAL, c.id)], exact[(EVAL, c.id)], k) for c in cases]
         rk = [overlap(r.ids[(EVAL, c.id)], exact[(EVAL, c.id)], kc) for c in cases]
         lat = [t for c in cases for t in r.ms[(EVAL, c.id)]]
         name = f"**{r.engine.label}**" if r.engine.default else r.engine.label
-        lines.append(f"| {name} | {mean(r10):.3f} | {mean(rk):.3f} | {percentile(lat, 50):.2f} | "
+        access = r.plan.access if r.plan else "?"
+        lines.append(f"| {name} | {access} | {mean(r10):.3f} | {mean(rk):.3f} | {percentile(lat, 50):.2f} | "
                      f"{percentile(lat, 95):.2f} | {mean(lat):.2f} |")
-    lines += ["", "Bold = the configuration production uses (pgvector) or ParadeDB's default.", ""]
+    lines += ["", "Bold = the configuration production uses (pgvector) or ParadeDB's default. "
+              "Plan = how the first query's rows were found; \"seq scan (exact)\" means the planner "
+              "skipped the vector index and compared every row.", ""]
 
     defaults = [r for r in results if r.engine.default]
     lines += [
@@ -455,19 +479,24 @@ def report(args, cases: list[EvalCase], facts: dict, sel: dict[str, int], result
         "## Which filters run inside the ParadeDB index",
         "",
         "EXPLAIN of the ParadeDB vector search with each filter alone, written by the app's "
-        "filters.build_where exactly as search writes it.",
+        "filters.build_where exactly as search writes it. Clause = what the filter added to the query "
+        "ParadeDB runs: term / range / ... are lookups in the index; other kinds (a column not in the "
+        "index, an expression like lower(brand)) are checked row by row during the scan.",
         "",
-        "| Filter | Plan | Postgres filter after the scan |",
-        "|---|---|---|",
+        "| Filter | Plan | Clause kind | Clause added to the scan |",
+        "|---|---|---|---|",
     ]
     for p in pushdown:
-        post = f"`{p.plan.post_filter}`" if p.plan.post_filter else "-"
-        lines.append(f"| {p.filter} | {p.plan.verdict} | {post} |")
+        kinds = ", ".join(sorted({p.kind(c) for c in p.added})) or "-"
+        added = "<br>".join(f"`{c[:140]}{'…' if len(c) > 140 else ''}`" for c in p.added) or "-"
+        verdict = p.plan.verdict + (f" (`{p.plan.post_filter}`)" if p.plan.post_filter else "")
+        lines.append(f"| {p.filter} | {verdict} | {kinds} | {added.replace('|', '&#124;')} |")
     lines.append("")
 
     same = sum(one.ids[c.id] == one.two_ids[c.id] for c in cases)
     one_lat = [t for c in cases for t in one.one_ms[c.id]]
     two_lat = [t for c in cases for t in one.two_ms[c.id]]
+    serial_lat = [t for c in cases for t in one.serial_ms[c.id]]
     c_hybrid = next(r for r in results if r.engine.variant == "C")
     lines += [
         "## Hybrid in one SQL statement (E)",
@@ -478,8 +507,10 @@ def report(args, cases: list[EvalCase], facts: dict, sel: dict[str, int], result
         "same filters in both branches.",
         "",
         f"- Same top {k} from both: **{same}/{len(cases)}** queries.",
-        f"- One statement: p50 {percentile(one_lat, 50):.2f} ms, p95 {percentile(one_lat, 95):.2f} ms. "
-        f"Two queries + Python: p50 {percentile(two_lat, 50):.2f} ms, p95 {percentile(two_lat, 95):.2f} ms.",
+        f"- One statement: p50 {percentile(one_lat, 50):.2f} ms, p95 {percentile(one_lat, 95):.2f} ms; "
+        f"with parallel workers off (max_parallel_workers_per_gather = 0): p50 {percentile(serial_lat, 50):.2f} ms, "
+        f"p95 {percentile(serial_lat, 95):.2f} ms. "
+        f"Two queries in parallel + Python: p50 {percentile(two_lat, 50):.2f} ms, p95 {percentile(two_lat, 95):.2f} ms.",
         f"- nDCG@{k}: one statement {mean([ndcg_at_k(one.ids[c.id], c.relevant, k) for c in cases]):.3f}; "
         f"the app's hybrid on C {mean([ndcg_at_k(c_hybrid.hybrid[c.id], c.relevant, k) for c in cases]):.3f} "
         "(its extra rules: style codes to BM25 alone, fuzzy retry, BM25 weight by query coverage).",
@@ -497,8 +528,13 @@ def report(args, cases: list[EvalCase], facts: dict, sel: dict[str, int], result
     lines += ["## Plans", ""]
     for name, plan in plans.items():
         lines += [f"**{name}**", "", "```", plan.text(), "```", ""]
+    for r in results:
+        if r.plan and r.engine.kind == "pgvector":
+            lines += [f"**{r.engine.label}**", "", "```", r.plan.text(), "```", ""]
     if one.plan:
         lines += ["**E, one statement**", "", "```", one.plan.text(), "```", ""]
+    if one.serial_plan:
+        lines += ["**E, one statement, no parallel workers**", "", "```", one.serial_plan.text(), "```", ""]
     return "\n".join(lines).rstrip() + "\n"
 
 
