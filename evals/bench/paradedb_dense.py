@@ -25,6 +25,7 @@ the catalog has an embedding, and the condition would be one more thing to push 
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -86,6 +87,9 @@ async def search_dense_paradedb(
 # Is each filter evaluated inside the index?
 # ---------------------------------------------------------------------------
 
+_LONG_VECTOR = re.compile(r"'\[[-0-9.,e ]{100,}\]'")
+
+
 @dataclass
 class Plan:
     lines: list[str]
@@ -137,7 +141,8 @@ class Plan:
         return "pushed into the scan"
 
     def text(self) -> str:
-        return "\n".join(self.lines)
+        """The plan, with query vectors shortened (768 numbers per line help nobody)."""
+        return "\n".join(_LONG_VECTOR.sub("'[…vector…]'", line) for line in self.lines)
 
 
 async def explain(conn: AsyncConnection, query: sql.Composable, params: dict) -> Plan:
