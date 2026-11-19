@@ -207,7 +207,8 @@ cmd_status() {
   for svc in pdb026 pdb027; do
     echo
     echo "== $svc =="
-    psql_in "$svc" -tA <<'SQL'
+    psql_in "$svc" -q -tA <<'SQL'
+SET paradedb.planner_warnings = 'off';
 SELECT 'postgres ' || current_setting('server_version');
 SELECT 'extension ' || extname || ' ' || extversion FROM pg_extension
  WHERE extname IN ('pg_search', 'vector') ORDER BY extname;
